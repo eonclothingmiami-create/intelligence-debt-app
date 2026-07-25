@@ -23,6 +23,20 @@ export type RecommendBusinessActionInput = {
   marketingOverspend?: string;
 };
 
+/** Quantified impact — required by PRODUCT_VISION recommendation contract. */
+export type RecommendationExpectedImpact = {
+  /** Suggested or refused payment amount under review. */
+  cashDeployedToDebt: string;
+  /** Interest reduction estimate supplied by caller / debt engine. */
+  interestSavedEstimate: string;
+  /** Runway after respecting reserve policy (echo; not a silent invent). */
+  runwayMonthsPreserved: string | null;
+  /** Safety margin used in the decision (real BEP context). */
+  safetyMarginUsed: string;
+  /** Max safe capacity after liquidity + ads variance. */
+  capacityUsed: string;
+};
+
 export type RecommendBusinessActionResult = {
   action: string;
   rationale: string[];
@@ -34,15 +48,26 @@ export type RecommendBusinessActionResult = {
   suggestedExtraDebtPayment: string;
   marketingFreedCapacity: string;
   marketingOverspend: string;
+  expectedImpact: RecommendationExpectedImpact;
 };
 
 function zero(currency: string): Money {
   return Money.zero(currency);
 }
 
+function impact(input: {
+  cashDeployedToDebt: string;
+  interestSavedEstimate: string;
+  runwayMonthsPreserved: string | null;
+  safetyMarginUsed: string;
+  capacityUsed: string;
+}): RecommendationExpectedImpact {
+  return { ...input };
+}
+
 /**
- * Holistic recommendation: never debt-only.
- * Marketing plan-vs-actual adjusts capacity: underspend → recommend larger abono.
+ * Holistic CFO recommendation: never debt-only; never compromise operations.
+ * See docs/PRODUCT_VISION.md recommendation contract.
  */
 export function recommendBusinessAction(
   input: RecommendBusinessActionInput,
@@ -59,114 +84,115 @@ export function recommendBusinessAction(
   const adjustedMax = adjustedMaxRaw.isPositive() ? adjustedMaxRaw : zero(currency);
   const negativeSafety = safetyMargin.isNegative();
 
-  const baseFields = {
+  const meta = {
     adjustedMaxSafeExtraDebtPayment: adjustedMax.toString(),
-    suggestedExtraDebtPayment: '0',
     marketingFreedCapacity: freed.toString(),
     marketingOverspend: overspend.toString(),
   };
 
   if (negativeSafety) {
     const rationale: string[] = [
-      'No recomiendo acelerar el pago de deuda solo mirando el crédito: pondría en riesgo la operación.',
-      `El margen de seguridad es negativo (${input.safetyMargin}); las ventas proyectadas están bajo el punto de equilibrio (${input.breakEvenSales}).`,
-      `Runway: ${input.runwayMonths ?? 'n/a'} meses. Priorizar punto de equilibrio y liquidez antes de acelerar deuda.`,
+      'Prioridad: preservar la operación. No acelerar deuda con el margen de seguridad en rojo.',
+      `Datos: ventas ${input.projectedSales} vs punto de equilibrio ${input.breakEvenSales} → margen de seguridad ${input.safetyMargin}.`,
+      `Impacto si se forzara un abono: se debilitaría aún más la caja operativa (runway ${input.runwayMonths ?? 'n/a'} meses).`,
+      'Acción: sostener liquidez y subir ventas/margen hasta superar el BEP; después reevaluar abono.',
     ];
     if (freed.isPositive()) {
       rationale.push(
-        `Aunque publicidad liberó ${freed.toString()} vs presupuesto, el break-even sigue en rojo: no destinar ese sobrante a deuda todavía.`,
+        `Publicidad liberó ${freed.toString()} vs presupuesto, pero no se destina a deuda mientras el BEP no esté cubierto.`,
       );
     }
     return {
       action: 'hold_extra_debt_payment',
       rationale,
       valid: false,
-      ...baseFields,
+      suggestedExtraDebtPayment: '0',
+      ...meta,
+      expectedImpact: impact({
+        cashDeployedToDebt: '0',
+        interestSavedEstimate: '0',
+        runwayMonthsPreserved: input.runwayMonths,
+        safetyMarginUsed: input.safetyMargin,
+        capacityUsed: adjustedMax.toString(),
+      }),
     };
   }
 
   if (proposed.isPositive() && proposed.gt(adjustedMax)) {
     const rationale: string[] = [
-      'No recomiendo acelerar el pago de deuda solo mirando el crédito: pondría en riesgo la operación.',
-      `El abono propuesto (${proposed.toString()}) supera la capacidad segura ajustada (${adjustedMax.toString()}) tras liquidez y publicidad.`,
+      `No recomiendo el abono propuesto de ${proposed.toString()}: supera la capacidad segura de ${adjustedMax.toString()}.`,
+      `Datos: liquidez base ${baseMax.toString()}; ads liberados ${freed.toString()}; sobrepresupuesto ads ${overspend.toString()}.`,
+      `Runway ${input.runwayMonths ?? 'n/a'} meses; margen de seguridad ${input.safetyMargin} (BEP ${input.breakEvenSales}).`,
+      `Impacto de insistir: comprometería la reserva mínima / operación. Máximo defendible hoy: ${adjustedMax.toString()}.`,
     ];
-    if (overspend.isPositive()) {
-      rationale.push(
-        `Publicidad gastó ${overspend.toString()} por encima del presupuesto; eso reduce capacidad de abono.`,
-      );
-    }
-    rationale.push(
-      `Runway: ${input.runwayMonths ?? 'n/a'} meses. Capacidad base de liquidez ${baseMax.toString()}; liberado por ads ${freed.toString()}.`,
-    );
     return {
       action: 'hold_extra_debt_payment',
       rationale,
       valid: false,
       suggestedExtraDebtPayment: adjustedMax.toString(),
-      adjustedMaxSafeExtraDebtPayment: adjustedMax.toString(),
-      marketingFreedCapacity: freed.toString(),
-      marketingOverspend: overspend.toString(),
+      ...meta,
+      expectedImpact: impact({
+        cashDeployedToDebt: '0',
+        interestSavedEstimate: '0',
+        runwayMonthsPreserved: input.runwayMonths,
+        safetyMarginUsed: input.safetyMargin,
+        capacityUsed: adjustedMax.toString(),
+      }),
     };
   }
 
   const suggested = proposed.isPositive() ? proposed : adjustedMax;
 
-  const rationale: string[] = [
-    `Punto de equilibrio ${input.breakEvenSales}; ventas proyectadas ${input.projectedSales}; margen de seguridad ${input.safetyMargin}.`,
-    `Liquidez base permite hasta ${baseMax.toString()} de abono extra (runway ${input.runwayMonths ?? 'n/a'} meses).`,
-  ];
-
-  if (freed.isPositive()) {
-    rationale.push(
-      `Publicidad bajo presupuesto liberó ${freed.toString()}: capacidad ajustada de abono = ${adjustedMax.toString()}.`,
-    );
-  }
-  if (overspend.isPositive()) {
-    rationale.push(
-      `Publicidad sobre presupuesto consumió ${overspend.toString()} de capacidad; abono máximo ajustado ${adjustedMax.toString()}.`,
-    );
-  }
-
   if (suggested.isPositive()) {
+    const rationale: string[] = [
+      `Se recomienda un abono extraordinario de ${suggested.toString()} porque:`,
+      `la empresa mantiene runway de ${input.runwayMonths ?? 'n/a'} meses bajo su política de reserva;`,
+      `el punto de equilibrio (${input.breakEvenSales}) ya está cubierto por ventas ${input.projectedSales} (margen ${input.safetyMargin});`,
+      `la capacidad segura (liquidez${freed.isPositive() ? ' + sobrante de publicidad' : ''}) alcanza ${adjustedMax.toString()};`,
+      `el ahorro proyectado en intereses es ~${interestSaved.toString()};`,
+      'el flujo libre, tras el abono sugerido, permanece dentro del máximo seguro (operación no comprometida).',
+    ];
     if (freed.isPositive() && !proposed.isPositive()) {
       rationale.push(
-        `Recomiendo abono extraordinario de ${suggested.toString()} (liquidez + sobrante de ads) para reducir intereses futuros (~${interestSaved.toString()}) sin caer bajo el punto de equilibrio.`,
+        `Parte de la capacidad (${freed.toString()}) proviene de gastar menos en ads que el presupuesto planificado.`,
       );
-      return {
-        action: 'accelerate_debt_from_marketing_underspend',
-        rationale,
-        valid: true,
-        suggestedExtraDebtPayment: suggested.toString(),
-        adjustedMaxSafeExtraDebtPayment: adjustedMax.toString(),
-        marketingFreedCapacity: freed.toString(),
-        marketingOverspend: overspend.toString(),
-      };
     }
 
-    rationale.push(
-      `Recomiendo abono extraordinario de ${suggested.toString()}: conserva liquidez operativa y reduce intereses futuros (~${interestSaved.toString()}) sin caer bajo el punto de equilibrio.`,
-    );
     return {
-      action: 'accelerate_debt_within_liquidity',
+      action:
+        freed.isPositive() && !proposed.isPositive()
+          ? 'accelerate_debt_from_marketing_underspend'
+          : 'accelerate_debt_within_liquidity',
       rationale,
       valid: true,
       suggestedExtraDebtPayment: suggested.toString(),
-      adjustedMaxSafeExtraDebtPayment: adjustedMax.toString(),
-      marketingFreedCapacity: freed.toString(),
-      marketingOverspend: overspend.toString(),
+      ...meta,
+      expectedImpact: impact({
+        cashDeployedToDebt: suggested.toString(),
+        interestSavedEstimate: interestSaved.toString(),
+        runwayMonthsPreserved: input.runwayMonths,
+        safetyMarginUsed: input.safetyMargin,
+        capacityUsed: adjustedMax.toString(),
+      }),
     };
   }
 
-  rationale.push(
-    interestSaved.isPositive()
-      ? 'Sin capacidad de abono extra este mes; monitorear ahorro de intereses vs. break-even, liquidez y ejecución de ads.'
-      : 'Mantener operaciones sobre el punto de equilibrio con liquidez saludable.',
-  );
-
   return {
     action: 'maintain_operations',
-    rationale,
+    rationale: [
+      'Se recomienda no forzar abono extra hoy.',
+      `Datos: capacidad ajustada ${adjustedMax.toString()}; margen ${input.safetyMargin}; runway ${input.runwayMonths ?? 'n/a'}.`,
+      'Impacto de no abonar: se prioriza liquidez y operación; reevaluar cuando ventas/caja liberén capacidad positiva.',
+    ],
     valid: true,
-    ...baseFields,
+    suggestedExtraDebtPayment: '0',
+    ...meta,
+    expectedImpact: impact({
+      cashDeployedToDebt: '0',
+      interestSavedEstimate: '0',
+      runwayMonthsPreserved: input.runwayMonths,
+      safetyMarginUsed: input.safetyMargin,
+      capacityUsed: adjustedMax.toString(),
+    }),
   };
 }

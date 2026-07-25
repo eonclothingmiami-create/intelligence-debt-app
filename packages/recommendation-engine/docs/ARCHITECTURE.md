@@ -1,31 +1,56 @@
 # Recommendation Engine — Architecture
 
 **Package:** `@fie/recommendation-engine`  
-**Status:** Minimal binding for Business Financial OS
+**Canon:** [docs/PRODUCT_VISION.md](../../../docs/PRODUCT_VISION.md)
 
 ---
 
-## 1. Role in the OS
+## 1. Role
 
-This engine owns **holistic recommendations**: break-even safety + liquidity runway + debt interest trade-offs.
+Compose **holistic** advice for the CFO digital: liquidity, break-even, debt capacity, marketing plan-vs-actual, and (increasingly) cash allocation alternatives.
 
-Recommendations never debt-only. If a debt-acceleration heuristic would hurt operations (exceeds max-safe payment or negative safety margin), `valid` is `false` and the action is to hold.
+Recommendations are **not** debt-only. Operation survival > aggressive payoff.
 
 ---
 
-## 2. Hard refusal rules (v0)
+## 2. Contract (non‑negotiable)
+
+Every `RecommendBusinessActionResult` must include:
+
+| Field                       | Meaning                                               |
+| --------------------------- | ----------------------------------------------------- |
+| `action`                    | Machine id of the advice                              |
+| `rationale`                 | Human bullets: **why**, with real figures             |
+| `valid`                     | `false` if action would harm operations               |
+| `suggestedExtraDebtPayment` | Concrete amount when relevant                         |
+| `expectedImpact`            | Quantified effects (interest, liquidity, BEP context) |
+
+Forbidden: a one-liner “pague esta deuda” without justification and impact.
+
+---
+
+## 3. Hard refusal (v0+)
 
 ```text
-refuse if proposedExtraDebtPayment > maxSafeExtraDebtPayment
-refuse if safetyMargin < 0   (conceptually below break-even)
+refuse if safetyMargin < 0
+refuse if suggested/proposed payment > adjustedMaxSafe (liquidity + ads variance)
+refuse if action would breach user reserve / min liquidity policy
 ```
+
+When refusing, still explain with numbers (runway, BEP, ads overspend, etc.).
 
 ---
 
-## 3. Independence rules
+## 4. Capital allocation (roadmap)
 
-| Allowed                                                          | Forbidden             |
-| ---------------------------------------------------------------- | --------------------- |
-| `@fie/shared`, `@fie/financial-engine`, `@fie/break-even-engine` | NestJS, React, Prisma |
-| Pure functions                                                   | Mutating global state |
-| Deterministic advice                                             | Silent side effects   |
+Compare destinations for free cash: debt vs inventory vs ads vs reserve vs hold.  
+Only recommend debt acceleration when it wins **under** the multi-objective balance in PRODUCT_VISION.
+
+---
+
+## 5. Independence
+
+| Allowed                                                          | Forbidden                            |
+| ---------------------------------------------------------------- | ------------------------------------ |
+| `@fie/shared`, `@fie/financial-engine`, `@fie/break-even-engine` | NestJS, React, Prisma, ERP adapters  |
+| Pure functions                                                   | Mutating global state / calling Hera |

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import type { BreakEvenModel, BreakEvenSnapshot } from '@fie/break-even-engine';
+import type { SalesDashboardSnapshot } from '@fie/erp-integration';
 import type { MarketingChannel, MarketingPortfolioVsActual } from '@fie/shared';
 import {
   actionBusinessHealth,
@@ -11,9 +12,10 @@ import {
   actionMarketingPortfolio,
 } from '@/lib/actions';
 import type { LiquidityView } from '@/lib/engines';
+import { fetchSalesDashboard, pingApi, postHeraSale } from '@/lib/erpApi';
 import { formatCop, formatNumber, formatPct } from '@/lib/format';
 
-type Tab = 'overview' | 'costs' | 'marketing' | 'decision';
+type Tab = 'overview' | 'costs' | 'sales' | 'marketing' | 'decision';
 
 type ChannelBudgetRow = {
   channelId: string;
@@ -24,6 +26,7 @@ type ChannelBudgetRow = {
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Resumen' },
+  { id: 'sales', label: 'Ventas ERP' },
   { id: 'costs', label: 'Costos' },
   { id: 'marketing', label: 'Publicidad' },
   { id: 'decision', label: 'Decisión' },
@@ -60,6 +63,13 @@ export function OsShell() {
     adjustedMaxSafeExtraDebtPayment: string;
     marketingFreedCapacity: string;
     marketingOverspend: string;
+    expectedImpact: {
+      cashDeployedToDebt: string;
+      interestSavedEstimate: string;
+      runwayMonthsPreserved: string | null;
+      safetyMarginUsed: string;
+      capacityUsed: string;
+    };
   } | null>(null);
   const [score, setScore] = useState<{ score: number; riskLevel: string } | null>(null);
 
@@ -71,6 +81,9 @@ export function OsShell() {
   const [interestSaved, setInterestSaved] = useState('120000');
   const [channelRows, setChannelRows] = useState<ChannelBudgetRow[]>(DEFAULT_ROWS);
   const [newFixed, setNewFixed] = useState({ label: '', category: '', amount: '' });
+  const [salesDash, setSalesDash] = useState<SalesDashboardSnapshot | null>(null);
+  const [apiOnline, setApiOnline] = useState(false);
+  const [simSaleAmount, setSimSaleAmount] = useState('250000');
 
   const fixedBurn = useMemo(() => breakEven?.totalFixedCosts ?? '0', [breakEven]);
 
@@ -91,6 +104,61 @@ export function OsShell() {
   useEffect(() => {
     loadDemo();
   }, []);
+
+  async function refreshSalesFromErp() {
+    const online = await pingApi();
+    setApiOnline(online);
+    if (!online) {
+      setSalesDash(null);
+      return;
+    }
+    try {
+      const dash = await fetchSalesDashboard();
+      setSalesDash(dash);
+      if (model) {
+        const next = { ...model, projectedSales: dash.month.netSales };
+        setModel(next);
+        setBreakEven(await actionComputeBreakEven(next));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo leer proyección ERP');
+    }
+  }
+
+  useEffect(() => {
+    void refreshSalesFromErp();
+    const id = window.setInterval(() => {
+      void refreshSalesFromErp();
+    }, 8000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  async function simulateHeraSale() {
+    setError(null);
+    startTransition(async () => {
+      try {
+        const dash = await postHeraSale({
+          orderId: `sim_${Date.now()}`,
+          netAmount: simSaleAmount || '0',
+          itemCount: '1',
+        });
+        setSalesDash(dash);
+        setApiOnline(true);
+        if (model) {
+          const next = { ...model, projectedSales: dash.month.netSales };
+          setModel(next);
+          setBreakEven(await actionComputeBreakEven(next));
+        }
+        setTab('sales');
+      } catch (e) {
+        setError(
+          e instanceof Error
+            ? `${e.message}. Arranca la API: pnpm --filter @fie/api dev`
+            : 'API ERP no disponible',
+        );
+      }
+    });
+  }
 
   function recomputeBreakEven(next: BreakEvenModel) {
     setModel(next);
@@ -278,27 +346,108 @@ export function OsShell() {
       ) : null}
 
       {tab === 'overview' && breakEven ? (
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <Metric
-            title="Punto de equilibrio"
-            value={formatCop(breakEven.breakEvenSales)}
-            hint={`${formatNumber(breakEven.breakEvenUnits)} und/mes`}
-          />
-          <Metric
-            title="Margen de seguridad"
-            value={formatCop(breakEven.safetyMargin)}
-            hint={formatPct(breakEven.safetyMarginRate)}
-          />
-          <Metric
-            title="Costos fijos"
-            value={formatCop(breakEven.totalFixedCosts)}
-            hint={`Días op.: ${breakEven.inputsUsed.operatingDaysPerMonth}`}
-          />
-          <Metric
-            title="Meta diaria"
-            value={formatCop(breakEven.daily.money)}
-            hint={`${formatNumber(breakEven.daily.units)} und/día`}
-          />
+        <section className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <Metric
+              title="Punto de equilibrio"
+              value={formatCop(breakEven.breakEvenSales)}
+              hint={`${formatNumber(breakEven.breakEvenUnits)} und/mes`}
+            />
+            <Metric
+              title="Margen de seguridad"
+              value={formatCop(breakEven.safetyMargin)}
+              hint={formatPct(breakEven.safetyMarginRate)}
+            />
+            <Metric
+              title="Ventas mes (ERP)"
+              value={formatCop(salesDash?.month.netSales ?? breakEven.projectedSales)}
+              hint={
+                apiOnline
+                  ? `${salesDash?.month.salesCount ?? 0} pedidos · vivo`
+                  : 'API offline — usa proyección demo'
+              }
+            />
+            <Metric
+              title="Ventas hoy (ERP)"
+              value={formatCop(salesDash?.day.netSales ?? null)}
+              hint={
+                salesDash
+                  ? `Ticket prom. ${formatCop(salesDash.day.averageTicket)}`
+                  : 'Conecta @fie/api'
+              }
+            />
+          </div>
+          <p className="text-xs text-muted">
+            Fuente de ventas: Ventas Hera vía eventos (nunca tablas del ERP). Estado API:{' '}
+            {apiOnline ? 'en línea' : 'fuera de línea'}.
+          </p>
+        </section>
+      ) : null}
+
+      {tab === 'sales' ? (
+        <section className="grid gap-4 lg:grid-cols-2">
+          <div className="panel rounded-2xl p-4 md:p-6">
+            <h2 className="brand-mark text-2xl text-forest">Ventas desde Hera</h2>
+            <p className="mt-1 text-sm text-muted">
+              El Financial OS solo consume eventos. Hera publica; aquí se proyecta día / mes /
+              acumulado y se actualiza el BEP.
+            </p>
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              <Metric
+                title="Hoy"
+                value={formatCop(salesDash?.day.netSales ?? null)}
+                hint={`${salesDash?.day.salesCount ?? 0} ventas`}
+              />
+              <Metric
+                title="Mes"
+                value={formatCop(salesDash?.month.netSales ?? null)}
+                hint={`${salesDash?.month.salesCount ?? 0} ventas`}
+              />
+              <Metric
+                title="Acumulado"
+                value={formatCop(salesDash?.accumulated.netSales ?? null)}
+                hint={`Pagos ${formatCop(salesDash?.accumulated.paymentsReceived ?? null)}`}
+              />
+            </div>
+            <button
+              type="button"
+              className="mt-6 rounded-full border border-[var(--line)] bg-white/70 px-4 py-2 text-sm font-medium"
+              onClick={() => void refreshSalesFromErp()}
+            >
+              Actualizar desde API
+            </button>
+          </div>
+          <div className="panel rounded-2xl p-4 md:p-6">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted">
+              Simular push de Hera
+            </h3>
+            <p className="mt-2 text-sm text-muted">
+              En producción Hera llama{' '}
+              <code className="text-xs">POST /integrations/hera/events</code>. Aquí puedes simular
+              una venta para ver el tablero en vivo.
+            </p>
+            <label className="mt-4 block text-sm">
+              Monto neto venta
+              <input
+                className="metric mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2"
+                value={simSaleAmount}
+                onChange={(e) => setSimSaleAmount(e.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => void simulateHeraSale()}
+              className="mt-4 rounded-full bg-forest px-4 py-2 text-sm font-semibold text-mist"
+            >
+              Enviar evento SaleCreated
+            </button>
+            {!apiOnline ? (
+              <p className="mt-4 text-sm text-danger">
+                API no detectada en localhost:4000. Ejecuta{' '}
+                <code className="text-xs">npx pnpm@9.15.9 --filter @fie/api dev</code>
+              </p>
+            ) : null}
+          </div>
         </section>
       ) : null}
 
@@ -587,6 +736,12 @@ export function OsShell() {
                 </p>
                 <p className="text-lg font-semibold text-forest">
                   Abono sugerido: {formatCop(recommendation.suggestedExtraDebtPayment)}
+                </p>
+                <p className="text-sm text-muted">
+                  Impacto: intereses ~
+                  {formatCop(recommendation.expectedImpact.interestSavedEstimate)} · runway{' '}
+                  {recommendation.expectedImpact.runwayMonthsPreserved ?? '—'} meses · margen{' '}
+                  {formatCop(recommendation.expectedImpact.safetyMarginUsed)}
                 </p>
               </div>
             ) : null}

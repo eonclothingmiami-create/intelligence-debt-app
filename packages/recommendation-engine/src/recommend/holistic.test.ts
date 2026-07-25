@@ -49,9 +49,11 @@ describe('recommendBusinessAction', () => {
     expect(result.valid).toBe(true);
     expect(result.action).toBe('accelerate_debt_within_liquidity');
     expect(result.suggestedExtraDebtPayment).toBe('2000000');
+    expect(result.expectedImpact.cashDeployedToDebt).toBe('2000000');
+    expect(result.expectedImpact.interestSavedEstimate).toBe('900000');
     const joined = result.rationale.join(' ');
     expect(joined).toMatch(/punto de equilibrio/i);
-    expect(joined).toMatch(/liquidez/i);
+    expect(joined).toMatch(/runway|liquidez|reserva/i);
   });
 
   it('raises suggested abono when marketing underspend frees capacity', () => {

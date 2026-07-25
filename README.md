@@ -1,34 +1,36 @@
 # Business Financial OS
 
-**Financial Intelligence Engine** is a **Business Financial Operating System**.
+**CFO digital** de la empresa — no es un ERP, no es contabilidad, no es solo deudas.
 
-Debt is one module. The goal is company-wide financial health.
+Canon de producto: [docs/PRODUCT_VISION.md](docs/PRODUCT_VISION.md)
 
-## Fundamental principle
+## Principios
 
-**No hardcoded financial values.** The user configures everything with data. The software recalculates.
+- Decisiones con **datos reales** (ERP + usuario + políticas), sin supuestos silenciosos
+- Equilibrio: liquidez · deuda · flujo · patrimonio · operación · uso del efectivo
+- **Nunca** comprometer la operación por pagar deuda
+- Éxito = responder “¿qué hago con mi dinero hoy?” — no cantidad de gráficos
 
-Read: [docs/CONFIGURATION_PRINCIPLE.md](docs/CONFIGURATION_PRINCIPLE.md)
-
-- **Inputs:** costs, prices, targets, seasons, modules, dashboard, policies
-- **Outputs:** break-even, liquidity, scores, recommendations
-- Break-even is **never** edited — only recalculated
-- No “July is bad” — only history-based statements when data exists
+Configuración: [docs/CONFIGURATION_PRINCIPLE.md](docs/CONFIGURATION_PRINCIPLE.md) · ERP: [docs/ERP_INTEGRATION.md](docs/ERP_INTEGRATION.md)
 
 ## Packages
 
 ```text
 packages/
+  erp-integration/   # Ventas Hera → domain events (no ERP DB access)
+  debt-manager/      # Obligaciones vivas + historial eventos (SoT usuario)
   break-even-engine/
-  financial-engine/
+  financial-engine/  # Debt Engine (math)
   liquidity-engine/
   risk-engine/
   cashflow-engine/
   simulation-engine/
   optimization-engine/
   recommendation-engine/
-  shared/   # workspace config (modules, seasons, dashboard)
+  shared/
 ```
+
+ERP boundary: [docs/ERP_INTEGRATION.md](docs/ERP_INTEGRATION.md)
 
 ## Commands
 
@@ -49,6 +51,7 @@ npx pnpm@9.15.9 --filter @fie/web dev
 
 - Landing: http://localhost:3000
 - Tablero OS: http://localhost:3000/app
+- API Hera: http://localhost:4000 (`npx pnpm@9.15.9 --filter @fie/api dev`)
 - PWA instalable desde el navegador del celular
 
 ### Deploy (GitHub Pages — sin Vercel)

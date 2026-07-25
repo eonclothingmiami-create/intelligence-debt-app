@@ -22,11 +22,11 @@ export default function HomePage() {
 
           <div className="max-w-3xl pb-16 pt-20 md:pb-24">
             <h1 className="brand-mark text-5xl leading-[0.95] text-mist md:text-7xl">
-              Business Financial OS
+              CFO digital
             </h1>
             <p className="mt-6 max-w-xl text-lg text-mist/80 md:text-xl">
-              El punto de equilibrio, la liquidez y la publicidad dejan de ser hojas sueltas: un
-              sistema que calcula y recomienda sin inventar tus supuestos.
+              No es un ERP ni un contador: convierte ventas, gastos, deudas y caja reales en
+              recomendaciones justificadas — sin inventar supuestos.
             </p>
             <div className="mt-10 flex flex-wrap gap-3">
               <Link

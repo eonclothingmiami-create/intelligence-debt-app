@@ -4,6 +4,7 @@ export { recommendBusinessAction } from './recommend/holistic.js';
 export type {
   RecommendBusinessActionInput,
   RecommendBusinessActionResult,
+  RecommendationExpectedImpact,
 } from './recommend/holistic.js';
 
 /**
