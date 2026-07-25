@@ -24,6 +24,7 @@ export type LiquidityFormInput = {
   monthlyFreeCashFlow: string;
   proposedExtraDebtPayment: string;
   reserveMonths: string;
+  minCashFloor?: string;
 };
 
 export type LiquidityView = {
@@ -33,6 +34,7 @@ export type LiquidityView = {
   canAffordExtraPayment: boolean;
   reserveMonths: string;
   reserveAmount: string;
+  minCashFloor: string | null;
 };
 
 export function loadDemoModel(): BreakEvenModel {
@@ -45,12 +47,14 @@ export function runBreakEven(model: BreakEvenModel): BreakEvenSnapshot {
 
 export function runLiquidity(input: LiquidityFormInput): LiquidityView {
   const currency = input.currency;
+  const floorRaw = input.minCashFloor?.trim();
   const result = computeLiquidity({
     cash: Money.from(input.cash, currency),
     monthlyFixedBurn: Money.from(input.monthlyFixedBurn, currency),
     monthlyFreeCashFlow: Money.from(input.monthlyFreeCashFlow, currency),
     proposedExtraDebtPayment: Money.from(input.proposedExtraDebtPayment, currency),
     reserveMonths: input.reserveMonths,
+    minCashFloor: floorRaw ? Money.from(floorRaw, currency) : undefined,
   });
 
   return {
@@ -60,6 +64,7 @@ export function runLiquidity(input: LiquidityFormInput): LiquidityView {
     canAffordExtraPayment: result.canAffordExtraPayment,
     reserveMonths: result.policyUsed.reserveMonths,
     reserveAmount: result.policyUsed.reserveAmount.toString(),
+    minCashFloor: result.policyUsed.minCashFloor?.toString() ?? null,
   };
 }
 

@@ -41,4 +41,18 @@ describe('computeLiquidity', () => {
       }),
     ).toThrow(/reserveMonths/);
   });
+
+  it('caps max safe by optional min cash floor', () => {
+    const result = computeLiquidity({
+      cash: Money.from('12000000', 'COP'),
+      monthlyFixedBurn: Money.from('10000000', 'COP'),
+      monthlyFreeCashFlow: Money.from('40000000', 'COP'),
+      proposedExtraDebtPayment: Money.from('0', 'COP'),
+      reserveMonths: '2',
+      minCashFloor: Money.from('10000000', 'COP'),
+    });
+    // Flow surplus = 40M - 20M = 20M, but cash headroom = 12M - 10M = 2M
+    expect(result.maxSafeExtraDebtPayment.toString()).toBe('2000000');
+    expect(result.policyUsed.minCashFloor?.toString()).toBe('10000000');
+  });
 });

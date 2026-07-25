@@ -96,9 +96,24 @@ export type DashboardWidget = {
 /**
  * Preference for liquidity reserve — USER policy, not engine truth.
  * Must be supplied explicitly; engines must not invent "3 months".
+ * Editable anytime in the OS; never a silent product default.
  */
 export type LiquidityPolicy = {
-  reserveMonths: string; // decimal string e.g. "3" or "4.5"
+  /** Months of fixed burn to keep as reserve (e.g. "2" or "3.5"). */
+  reserveMonths: string;
+  /**
+   * Optional absolute cash floor in workspace currency (decimal string).
+   * Extra debt payments must not push cash below this when set.
+   */
+  minCashFloor?: string;
+  /**
+   * If true, reserve must not be used for extra debt payments (hard floor).
+   * If false, AI/engines may warn but user can override consciously.
+   */
+  reserveIsHardFloor: boolean;
+  /** Free-text rationale / notes from the user (or confirmed AI draft). */
+  notes?: string;
+  updatedAt?: string;
 };
 
 /**

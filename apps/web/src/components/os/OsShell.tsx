@@ -6,6 +6,7 @@ import type { SalesDashboardSnapshot } from '@fie/erp-integration';
 import type { MarketingChannel, MarketingPortfolioVsActual } from '@fie/shared';
 import { AiRecommendPanel } from '@/components/os/AiRecommendPanel';
 import { DebtsPanel } from '@/components/os/DebtsPanel';
+import { PoliciesPanel } from '@/components/os/PoliciesPanel';
 import {
   actionBusinessHealth,
   actionComputeBreakEven,
@@ -21,12 +22,20 @@ import {
 } from '@/lib/debtStore';
 import type { LiquidityView } from '@/lib/engines';
 import { assembleBoardFinancialContext, requestAiRecommendation } from '@/lib/aiRecommend';
-import type { AiFinancialRecommendation } from '@/lib/aiRecommend';
+import type { AiFinancialRecommendation, FinancialContext } from '@/lib/aiRecommend';
 import { getStoredOpenAiKey } from '@/lib/openaiKey';
 import { fetchSalesDashboard, pingApi, syncHeraSalesMonth } from '@/lib/erpApi';
 import { formatCop, formatNumber, formatPct } from '@/lib/format';
+import { isLiquidityPolicyComplete, loadLiquidityPolicy } from '@/lib/policyStore';
+import { loadCashSnapshot, saveCashSnapshot } from '@/lib/cashStore';
+import {
+  cashAfterRecompra,
+  recompraAmount,
+  type WorkspaceCashSnapshot,
+} from '@/lib/workspaceProfile';
+import type { LiquidityPolicy } from '@fie/shared';
 
-type Tab = 'overview' | 'costs' | 'sales' | 'debts' | 'marketing' | 'decision' | 'ai';
+type Tab = 'overview' | 'costs' | 'sales' | 'debts' | 'marketing' | 'policies' | 'decision' | 'ai';
 
 type ChannelBudgetRow = {
   channelId: string;
@@ -41,6 +50,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'debts', label: 'Deudas' },
   { id: 'costs', label: 'Costos' },
   { id: 'marketing', label: 'Publicidad' },
+  { id: 'policies', label: 'Políticas' },
   { id: 'decision', label: 'Decisión' },
   { id: 'ai', label: 'CFO AI' },
 ];
@@ -86,10 +96,14 @@ export function OsShell() {
   } | null>(null);
   const [score, setScore] = useState<{ score: number; riskLevel: string } | null>(null);
 
-  const [cash, setCash] = useState('8000000');
-  const [freeCash, setFreeCash] = useState('4500000');
+  const [cashSnapshot, setCashSnapshot] = useState<WorkspaceCashSnapshot>(() => loadCashSnapshot());
+  const [cash, setCash] = useState(() => loadCashSnapshot().cashOnHand || '');
+  /** Free cash for extra debt — unknown until nómina + cuota are confirmed; do not invent. */
+  const [freeCash, setFreeCash] = useState('');
   const [proposedExtra, setProposedExtra] = useState('');
-  const [reserveMonths, setReserveMonths] = useState('2');
+  const [liquidityPolicy, setLiquidityPolicy] = useState<LiquidityPolicy>(() =>
+    loadLiquidityPolicy(),
+  );
   const [alertRate, setAlertRate] = useState('0.10');
   const [interestSaved, setInterestSaved] = useState('120000');
   const [channelRows, setChannelRows] = useState<ChannelBudgetRow[]>(DEFAULT_ROWS);
@@ -100,6 +114,17 @@ export function OsShell() {
   const [aiRec, setAiRec] = useState<AiFinancialRecommendation | null>(null);
   const [aiPending, setAiPending] = useState(false);
   const [openaiConnected, setOpenaiConnected] = useState(false);
+
+  const reserveMonths = liquidityPolicy.reserveMonths;
+  const minCashFloor = liquidityPolicy.minCashFloor ?? '';
+  const earmarkedRecompra = useMemo(() => recompraAmount(cashSnapshot), [cashSnapshot]);
+  const cashLeftAfterRecompra = useMemo(() => cashAfterRecompra(cashSnapshot), [cashSnapshot]);
+
+  function persistCashField(nextCash: string) {
+    setCash(nextCash);
+    const next = saveCashSnapshot({ ...cashSnapshot, cashOnHand: nextCash });
+    setCashSnapshot(next);
+  }
 
   const fixedBurn = useMemo(() => breakEven?.totalFixedCosts ?? '0', [breakEven]);
   const debtDash = useMemo(() => debtDashboard(debtWs), [debtWs]);
@@ -221,8 +246,135 @@ export function OsShell() {
     setError(null);
   }
 
+  function buildBoardContext(): FinancialContext {
+    const alerts: string[] = [];
+    if (portfolio?.alert) {
+      alerts.push('Hay desviación de publicidad vs presupuesto según la política configurada.');
+    }
+    if (!isLiquidityPolicyComplete(liquidityPolicy)) {
+      alerts.push('Falta política de liquidez (reserva en meses).');
+    }
+    return assembleBoardFinancialContext({
+      currency: model?.currency ?? 'COP',
+      sales: salesDash
+        ? {
+            dayNet: salesDash.day.netSales,
+            dayCount: salesDash.day.salesCount,
+            monthNet: salesDash.month.netSales,
+            monthCount: salesDash.month.salesCount,
+            accumulatedNet: salesDash.accumulated.netSales,
+            accumulatedCount: salesDash.accumulated.salesCount,
+            source: 'tes_movimientos.venta_pos',
+          }
+        : null,
+      breakEven: breakEven
+        ? {
+            breakEvenSales: breakEven.breakEvenSales,
+            projectedSales: breakEven.projectedSales,
+            safetyMargin: breakEven.safetyMargin,
+            safetyMarginRate: breakEven.safetyMarginRate,
+            contributionMarginRate: breakEven.contributionMarginRate,
+            totalFixedCosts: breakEven.totalFixedCosts,
+          }
+        : null,
+      liquidity: {
+        cash,
+        monthlyFixedBurn: fixedBurn,
+        monthlyFreeCashFlow: freeCash,
+        reserveMonths: reserveMonths || null,
+        runwayMonths: liquidity?.runwayMonths ?? null,
+        maxSafeExtraDebtPayment: liquidity?.maxSafeExtraDebtPayment ?? null,
+      },
+      health: score ? { score: score.score, riskLevel: score.riskLevel } : null,
+      engineRecommendation: recommendation
+        ? {
+            action: recommendation.action,
+            suggestedExtraDebtPayment: recommendation.suggestedExtraDebtPayment,
+            adjustedMaxSafeExtraDebtPayment: recommendation.adjustedMaxSafeExtraDebtPayment,
+            valid: recommendation.valid,
+            rationale: recommendation.rationale,
+          }
+        : null,
+      debts: {
+        totalBalance: debtDash.totalBalance,
+        estimatedMonthlyInterest: debtDash.estimatedMonthlyInterest,
+        monthlyInstallmentsDue: debtDash.monthlyInstallmentsDue,
+        obligationCount: debtDash.obligationCount,
+        allowsExtraPaymentCount: debtDash.allowsExtraPaymentCount,
+        optimizerSuggestedTarget: debtOpt.suggestedTargetObligationId,
+        optimizerSuggestedAmount: debtOpt.suggestedAmount,
+        optimizerRationale: debtOpt.rationale,
+        obligations: debtDash.snapshots.map((s) => ({
+          label: s.obligation.label,
+          kindLabel: s.obligation.kindLabel,
+          balance: s.balance,
+          estimatedMonthlyInterest: s.estimatedMonthlyInterest,
+          allowsExtraPayments: s.obligation.allowsExtraPayments,
+          interestOnlyPayments: Boolean(s.obligation.interestOnlyPayments),
+          ratePercent: s.obligation.ratePercent ?? null,
+          ratePeriodicity: s.obligation.ratePeriodicity,
+          purpose: s.obligation.purpose ?? null,
+        })),
+      },
+      marketing: {
+        totalBudget: portfolio?.totalBudgetAmount ?? null,
+        totalActual: portfolio?.totalActualAmount ?? null,
+        freedCapacityAmount: portfolio?.freedCapacityAmount ?? null,
+        overspendAmount: portfolio?.overspendAmount ?? null,
+        channels: channelRows.map((r) => ({
+          label: r.label,
+          budget: r.budget,
+          actual: r.actual,
+        })),
+      },
+      costs: {
+        fixedCostLines: (model?.fixedCosts ?? []).map((l) => ({
+          label: l.label,
+          category: l.category,
+          amount: l.amount,
+        })),
+      },
+      alerts,
+      notes: [
+        'Motores del OS calcularon BEP, liquidez, risk score y debt optimizer.',
+        'AI solo interpreta; no recalcula.',
+        liquidityPolicy.reserveIsHardFloor
+          ? 'Política: reserva intocable para abonos extra.'
+          : 'Política: reserva blanda (no intocable) — priorizar operación y recompra.',
+        liquidityPolicy.minCashFloor
+          ? `Piso mínimo de caja: ${liquidityPolicy.minCashFloor}`
+          : 'Sin piso absoluto de caja.',
+        liquidityPolicy.notes ? `Notas política: ${liquidityPolicy.notes}` : '',
+        'Objetivo declarado: salir de deudas sin perder liquidez operativa; robustecer el negocio.',
+        `Caja hoy: ${cash || '—'}; ~${Math.round(Number(cashSnapshot.recompraShareOfCash || 0) * 100)}% earmarked a recompra (≈ ${earmarkedRecompra}).`,
+        `Tras recompra queda ≈ ${cashLeftAfterRecompra} para nómina + cuota TC (montos exactos pendientes).`,
+        freeCash.trim()
+          ? `Flujo libre declarado para abono extra: ${freeCash}`
+          : 'Flujo libre para abono extra: pendiente hasta confirmar nómina y cuota de tarjeta.',
+        cashSnapshot.commitments.notes ?? '',
+      ].filter(Boolean),
+    });
+  }
+
   function runDecisionStack() {
     if (!breakEven) return;
+    if (!isLiquidityPolicyComplete(liquidityPolicy)) {
+      setError('Define primero la política de liquidez (pestaña Políticas).');
+      setTab('policies');
+      return;
+    }
+    if (!cash.trim()) {
+      setError('Indica la caja disponible hoy.');
+      setTab('decision');
+      return;
+    }
+    if (!freeCash.trim()) {
+      setError(
+        'Falta el flujo libre tras nómina y cuota. Confirma esos montos o escribe 0 si no queda nada para abono extra.',
+      );
+      setTab('decision');
+      return;
+    }
     setError(null);
     startTransition(async () => {
       try {
@@ -260,6 +412,7 @@ export function OsShell() {
           monthlyFreeCashFlow: freeCash,
           proposedExtraDebtPayment: proposed,
           reserveMonths,
+          minCashFloor: minCashFloor || undefined,
         });
         setLiquidity(liq);
 
@@ -321,99 +474,7 @@ export function OsShell() {
     setError(null);
     setAiPending(true);
     try {
-      const alerts: string[] = [];
-      if (portfolio?.alert) {
-        alerts.push('Hay desviación de publicidad vs presupuesto según la política configurada.');
-      }
-
-      const context = assembleBoardFinancialContext({
-        currency: model?.currency ?? 'COP',
-        sales: salesDash
-          ? {
-              dayNet: salesDash.day.netSales,
-              dayCount: salesDash.day.salesCount,
-              monthNet: salesDash.month.netSales,
-              monthCount: salesDash.month.salesCount,
-              accumulatedNet: salesDash.accumulated.netSales,
-              accumulatedCount: salesDash.accumulated.salesCount,
-              source: 'tes_movimientos.venta_pos',
-            }
-          : null,
-        breakEven: breakEven
-          ? {
-              breakEvenSales: breakEven.breakEvenSales,
-              projectedSales: breakEven.projectedSales,
-              safetyMargin: breakEven.safetyMargin,
-              safetyMarginRate: breakEven.safetyMarginRate,
-              contributionMarginRate: breakEven.contributionMarginRate,
-              totalFixedCosts: breakEven.totalFixedCosts,
-            }
-          : null,
-        liquidity: {
-          cash,
-          monthlyFixedBurn: fixedBurn,
-          monthlyFreeCashFlow: freeCash,
-          reserveMonths,
-          runwayMonths: liquidity?.runwayMonths ?? null,
-          maxSafeExtraDebtPayment: liquidity?.maxSafeExtraDebtPayment ?? null,
-        },
-        health: score ? { score: score.score, riskLevel: score.riskLevel } : null,
-        engineRecommendation: recommendation
-          ? {
-              action: recommendation.action,
-              suggestedExtraDebtPayment: recommendation.suggestedExtraDebtPayment,
-              adjustedMaxSafeExtraDebtPayment: recommendation.adjustedMaxSafeExtraDebtPayment,
-              valid: recommendation.valid,
-              rationale: recommendation.rationale,
-            }
-          : null,
-        debts: {
-          totalBalance: debtDash.totalBalance,
-          estimatedMonthlyInterest: debtDash.estimatedMonthlyInterest,
-          monthlyInstallmentsDue: debtDash.monthlyInstallmentsDue,
-          obligationCount: debtDash.obligationCount,
-          allowsExtraPaymentCount: debtDash.allowsExtraPaymentCount,
-          optimizerSuggestedTarget: debtOpt.suggestedTargetObligationId,
-          optimizerSuggestedAmount: debtOpt.suggestedAmount,
-          optimizerRationale: debtOpt.rationale,
-          obligations: debtDash.snapshots.map((s) => ({
-            label: s.obligation.label,
-            kindLabel: s.obligation.kindLabel,
-            balance: s.balance,
-            estimatedMonthlyInterest: s.estimatedMonthlyInterest,
-            allowsExtraPayments: s.obligation.allowsExtraPayments,
-            interestOnlyPayments: Boolean(s.obligation.interestOnlyPayments),
-            ratePercent: s.obligation.ratePercent ?? null,
-            ratePeriodicity: s.obligation.ratePeriodicity,
-            purpose: s.obligation.purpose ?? null,
-          })),
-        },
-        marketing: {
-          totalBudget: portfolio?.totalBudgetAmount ?? null,
-          totalActual: portfolio?.totalActualAmount ?? null,
-          freedCapacityAmount: portfolio?.freedCapacityAmount ?? null,
-          overspendAmount: portfolio?.overspendAmount ?? null,
-          channels: channelRows.map((r) => ({
-            label: r.label,
-            budget: r.budget,
-            actual: r.actual,
-          })),
-        },
-        costs: {
-          fixedCostLines: (model?.fixedCosts ?? []).map((l) => ({
-            label: l.label,
-            category: l.category,
-            amount: l.amount,
-          })),
-        },
-        alerts,
-        notes: [
-          'Motores del OS calcularon BEP, liquidez, risk score y debt optimizer.',
-          'AI solo interpreta; no recalcula.',
-        ],
-      });
-
-      const rec = await requestAiRecommendation(context);
+      const rec = await requestAiRecommendation(buildBoardContext());
       setAiRec(rec);
       setTab('ai');
     } catch (e) {
@@ -788,6 +849,16 @@ export function OsShell() {
         </section>
       ) : null}
 
+      {tab === 'policies' ? (
+        <PoliciesPanel
+          policy={liquidityPolicy}
+          onPolicyChange={setLiquidityPolicy}
+          buildContext={buildBoardContext}
+          fixedBurn={fixedBurn}
+          openaiConnected={openaiConnected}
+        />
+      ) : null}
+
       {tab === 'decision' ? (
         <section className="grid gap-4 lg:grid-cols-2">
           <div className="panel rounded-2xl p-4 md:p-6">
@@ -797,25 +868,39 @@ export function OsShell() {
               <input
                 className="metric mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2"
                 value={cash}
-                onChange={(e) => setCash(e.target.value)}
+                onChange={(e) => persistCashField(e.target.value)}
               />
             </label>
+            <p className="mt-1 text-xs text-muted">
+              ~{Math.round(Number(cashSnapshot.recompraShareOfCash || 0) * 100)}% a recompra (≈{' '}
+              {formatCop(earmarkedRecompra)}) · queda ≈ {formatCop(cashLeftAfterRecompra)} para
+              nómina + cuota TC
+            </p>
             <label className="mt-3 block text-sm">
-              Flujo libre mensual
+              Flujo libre mensual (para abono extra — tras nómina y cuota)
               <input
                 className="metric mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2"
                 value={freeCash}
+                placeholder="Pendiente: confirma nómina y cuota"
                 onChange={(e) => setFreeCash(e.target.value)}
               />
             </label>
             <label className="mt-3 block text-sm">
-              Reserva (meses de burn)
+              Reserva (meses de burn) — política guardada
               <input
-                className="metric mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2"
-                value={reserveMonths}
-                onChange={(e) => setReserveMonths(e.target.value)}
+                className="metric mt-1 w-full rounded-lg border border-[var(--line)] bg-mist/40 px-3 py-2"
+                value={reserveMonths || '— sin definir —'}
+                readOnly
               />
             </label>
+            <p className="mt-1 text-xs text-muted">
+              Se edita en{' '}
+              <button type="button" className="underline" onClick={() => setTab('policies')}>
+                Políticas
+              </button>
+              {minCashFloor ? ` · piso caja ${formatCop(minCashFloor)}` : ''}
+              {liquidityPolicy.reserveIsHardFloor ? ' · reserva intocable' : ' · reserva blanda'}
+            </p>
             <label className="mt-3 block text-sm">
               Abono extra propuesto (opcional — si lo dejas vacío, el motor sugiere)
               <input

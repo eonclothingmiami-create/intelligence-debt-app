@@ -10,11 +10,16 @@ export type LiquidityInput = {
    * The engine never assumes "3 months".
    */
   reserveMonths: string;
+  /**
+   * Optional USER absolute cash floor. Extra payments must not leave cash below this.
+   */
+  minCashFloor?: Money;
 };
 
 export type LiquidityAssumptions = {
   reserveMonths: string;
   reserveAmount: Money;
+  minCashFloor: Money | null;
 };
 
 export type LiquidityResult = {
@@ -35,10 +40,19 @@ export function computeLiquidity(input: LiquidityInput): LiquidityResult {
   }
 
   const freeCash = input.monthlyFreeCashFlow;
-  const reserveAmount = input.monthlyFixedBurn.mul(reserve);
   const zero = Money.zero(freeCash.currency);
-  const surplus = freeCash.sub(reserveAmount);
-  const maxSafeExtraDebtPayment = surplus.isPositive() ? surplus : zero;
+  const reserveAmount = input.monthlyFixedBurn.mul(reserve);
+  const surplusFromFlow = freeCash.sub(reserveAmount);
+  let maxSafeExtraDebtPayment = surplusFromFlow.isPositive() ? surplusFromFlow : zero;
+
+  const floor = input.minCashFloor ?? null;
+  if (floor && floor.isPositive()) {
+    const headroomFromCash = input.cash.sub(floor);
+    const cashCap = headroomFromCash.isPositive() ? headroomFromCash : zero;
+    if (cashCap.lt(maxSafeExtraDebtPayment)) {
+      maxSafeExtraDebtPayment = cashCap;
+    }
+  }
 
   let runwayMonths: string | null = null;
   if (input.monthlyFixedBurn.isPositive()) {
@@ -52,6 +66,10 @@ export function computeLiquidity(input: LiquidityInput): LiquidityResult {
     freeCash,
     maxSafeExtraDebtPayment,
     canAffordExtraPayment,
-    policyUsed: { reserveMonths: reserve.toFixed(), reserveAmount },
+    policyUsed: {
+      reserveMonths: reserve.toFixed(),
+      reserveAmount,
+      minCashFloor: floor,
+    },
   };
 }

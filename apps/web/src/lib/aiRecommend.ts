@@ -26,9 +26,7 @@ export function assembleBoardFinancialContext(input: FinancialContextBoardInput)
  * Calls backend RecommendationProvider (Edge).
  * User OpenAI key (if connected) is sent as x-openai-api-key — never used in React for OpenAI SDK.
  */
-export async function requestAiRecommendation(
-  context: FinancialContext,
-): Promise<AiFinancialRecommendation> {
+function recommendHeaders(): Record<string, string> {
   const userKey = getStoredOpenAiKey();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -38,11 +36,16 @@ export async function requestAiRecommendation(
   if (userKey) {
     headers['x-openai-api-key'] = userKey;
   }
+  return headers;
+}
 
+export async function requestAiRecommendation(
+  context: FinancialContext,
+): Promise<AiFinancialRecommendation> {
   const res = await fetch(RECOMMEND_URL, {
     method: 'POST',
-    headers,
-    body: JSON.stringify({ context }),
+    headers: recommendHeaders(),
+    body: JSON.stringify({ mode: 'recommendation', context }),
   });
   const body = (await res.json()) as {
     ok?: boolean;
@@ -55,6 +58,39 @@ export async function requestAiRecommendation(
     throw new Error(body.message || body.detail || body.error || `Recomendación AI ${res.status}`);
   }
   return body.recommendation;
+}
+
+export type LiquidityPolicySuggestion = {
+  suggestedReserveMonths: string;
+  suggestedMinCashFloor: string | null;
+  reserveIsHardFloor: boolean;
+  rationale: string;
+  confidenceLevel: string;
+  questionsForUser: string[];
+};
+
+/** AI draft only — never auto-saves. User must confirm in Políticas. */
+export async function requestLiquidityPolicySuggestion(
+  context: FinancialContext,
+): Promise<LiquidityPolicySuggestion> {
+  const res = await fetch(RECOMMEND_URL, {
+    method: 'POST',
+    headers: recommendHeaders(),
+    body: JSON.stringify({ mode: 'liquidity_policy', context }),
+  });
+  const body = (await res.json()) as {
+    ok?: boolean;
+    suggestion?: LiquidityPolicySuggestion;
+    error?: string;
+    message?: string;
+    detail?: string;
+  };
+  if (!res.ok || !body.suggestion) {
+    throw new Error(
+      body.message || body.detail || body.error || `Sugerencia de política ${res.status}`,
+    );
+  }
+  return body.suggestion;
 }
 
 export type { AiFinancialRecommendation, FinancialContext };
