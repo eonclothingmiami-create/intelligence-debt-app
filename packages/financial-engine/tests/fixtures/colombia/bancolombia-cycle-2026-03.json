@@ -1,0 +1,29 @@
+{
+  "description": "Golden fixture — Bancolombia-style revolving cycle (simplified reproducible case)",
+  "creditId": "crd_col_1",
+  "annualEffectiveRate": "0.425761",
+  "events": [
+    {
+      "type": "CreditOpened",
+      "occurredOn": "2026-03-01",
+      "sequence": 1
+    },
+    {
+      "type": "PurchaseCreated",
+      "occurredOn": "2026-03-01",
+      "sequence": 2,
+      "amount": "5000000",
+      "installments": 1
+    },
+    {
+      "type": "PaymentReceived",
+      "occurredOn": "2026-03-15",
+      "sequence": 3,
+      "amount": "1000000"
+    }
+  ],
+  "expected": {
+    "revolvingPrincipal": "4000000",
+    "reportedBalance": "4000000"
+  }
+}

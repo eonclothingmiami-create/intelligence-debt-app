@@ -1,0 +1,40 @@
+{
+  "name": "@fie/risk-engine",
+  "version": "0.0.1",
+  "description": "Business Risk Score for Business Financial OS",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "docs"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint src --max-warnings=0",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@fie/break-even-engine": "workspace:*",
+    "@fie/financial-engine": "workspace:*",
+    "@fie/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "22",
+    "@vitest/coverage-v8": "^3.0.7",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.7"
+  },
+  "publishConfig": {
+    "access": "restricted"
+  }
+}

@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+# Windows/Cursor often lack Git's bash on PATH. Node's Unix `npx` shim requires bash
+# (`#!/usr/bin/env bash`), so invoke lint-staged via node directly.
+node "$(dirname "$0")/../node_modules/lint-staged/bin/lint-staged.js"
