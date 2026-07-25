@@ -402,7 +402,8 @@ export function OsShell() {
           <div className="panel rounded-2xl p-4 md:p-6">
             <h2 className="brand-mark text-2xl text-forest">Ventas desde Hera</h2>
             <p className="mt-1 text-sm text-muted">
-              Sync one-way: Hera → eventos del OS (Supabase). El tablero no lee tablas del ERP.
+              Fuente: Tesorería → Trazabilidad de dinero (<code className="text-xs">venta_pos</code>
+              ). No usa la tabla de ventas del ERP.
             </p>
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
               <Metric
@@ -434,8 +435,8 @@ export function OsShell() {
               </p>
             ) : (
               <p className="mt-4 text-xs text-muted">
-                Fuente: sync mes → <code className="text-xs">fie_domain_events</code>. Estado API:
-                en línea.
+                Sync: <code className="text-xs">tes_movimientos</code> →{' '}
+                <code className="text-xs">fie_domain_events</code>. API en línea.
               </p>
             )}
           </div>

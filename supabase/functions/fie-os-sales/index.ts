@@ -1,13 +1,13 @@
 /**
  * Financial OS sales ingress on Supabase Edge.
- * - Reads Hera ERP (public.ventas) ONLY inside sync (service role) → copies to fie_os.domain_events
- * - Dashboard projections read ONLY fie_os (never public.*)
- * Paths mirror @fie/api for the web client.
+ * SoT for money-in: Hera Tesorería → public.tes_movimientos (categoria venta_pos).
+ * Copies into fie_domain_events only; dashboard never queries ERP tables.
  */
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-const PROVIDER = "ventas-hera";
+const PROVIDER = "hera-trazabilidad";
+const LEGACY_PROVIDER = "ventas-hera";
 const CURRENCY = "COP";
 
 type SalePayload = {
@@ -20,6 +20,9 @@ type SalePayload = {
   discountAmount?: string;
   taxAmount?: string;
   channel?: string;
+  method?: string;
+  bucket?: string;
+  concept?: string;
 };
 
 type DomainEvent = {
@@ -28,7 +31,7 @@ type DomainEvent = {
   externalId: string;
   occurredAt: string;
   currency: string;
-  payload: SalePayload;
+  payload: SalePayload | { amount: string; method?: string };
 };
 
 type SalesProjection = {
@@ -65,24 +68,6 @@ function money(n: number): string {
   return Math.round(n).toFixed(0);
 }
 
-function emptyProjection(): SalesProjection {
-  return {
-    currency: CURRENCY,
-    salesCount: 0,
-    unitsSold: "0",
-    grossSales: "0",
-    netSales: "0",
-    totalCost: "0",
-    totalUtility: "0",
-    totalDiscounts: "0",
-    totalTaxes: "0",
-    averageTicket: null,
-    cancelledCount: 0,
-    paymentsReceived: "0",
-    lastEventAt: null,
-  };
-}
-
 function project(events: DomainEvent[]): SalesProjection {
   let gross = 0;
   let net = 0;
@@ -99,14 +84,15 @@ function project(events: DomainEvent[]): SalesProjection {
   for (const e of events) {
     lastEventAt = e.occurredAt;
     if (e.type === "SaleCreated") {
+      const p = e.payload as SalePayload;
       salesCount += 1;
-      gross += Number(e.payload.grossAmount) || 0;
-      net += Number(e.payload.netAmount) || 0;
-      cost += Number(e.payload.costAmount ?? "0") || 0;
-      utility += Number(e.payload.utilityAmount ?? "0") || 0;
-      discounts += Number(e.payload.discountAmount ?? "0") || 0;
-      taxes += Number(e.payload.taxAmount ?? "0") || 0;
-      units += Number(e.payload.itemCount) || 0;
+      gross += Number(p.grossAmount) || 0;
+      net += Number(p.netAmount) || 0;
+      cost += Number(p.costAmount ?? "0") || 0;
+      utility += Number(p.utilityAmount ?? "0") || 0;
+      discounts += Number(p.discountAmount ?? "0") || 0;
+      taxes += Number(p.taxAmount ?? "0") || 0;
+      units += Number(p.itemCount) || 0;
     } else if (e.type === "SaleCancelled") {
       cancelled += 1;
     } else if (e.type === "PaymentReceived") {
@@ -134,8 +120,23 @@ function project(events: DomainEvent[]): SalesProjection {
 function dashboard(events: DomainEvent[], asOfIso: string) {
   const today = asOfIso.slice(0, 10);
   const month = asOfIso.slice(0, 7);
-  const dayEvents = events.filter((e) => e.occurredAt.slice(0, 10) === today);
-  const monthEvents = events.filter((e) => e.occurredAt.slice(0, 7) === month);
+  // Prefer Bogotá calendar day for "hoy" when asOf is UTC evening
+  const bogotaDay = new Date(asOfIso).toLocaleDateString("en-CA", {
+    timeZone: "America/Bogota",
+  });
+  const bogotaMonth = bogotaDay.slice(0, 7);
+  const dayEvents = events.filter((e) => {
+    const d = new Date(e.occurredAt).toLocaleDateString("en-CA", {
+      timeZone: "America/Bogota",
+    });
+    return d === bogotaDay || e.occurredAt.slice(0, 10) === today || e.occurredAt.slice(0, 10) === bogotaDay;
+  });
+  const monthEvents = events.filter((e) => {
+    const d = new Date(e.occurredAt).toLocaleDateString("en-CA", {
+      timeZone: "America/Bogota",
+    });
+    return d.startsWith(bogotaMonth) || e.occurredAt.slice(0, 7) === month || e.occurredAt.slice(0, 7) === bogotaMonth;
+  });
   return {
     asOf: asOfIso,
     day: project(dayEvents),
@@ -153,7 +154,6 @@ function adminClient() {
 
 function pathOf(req: Request): string {
   const u = new URL(req.url);
-  // /functions/v1/fie-os-sales/... → keep suffix after function name
   const marker = "/fie-os-sales";
   const idx = u.pathname.indexOf(marker);
   const rest = idx >= 0 ? u.pathname.slice(idx + marker.length) : u.pathname;
@@ -166,6 +166,7 @@ async function loadEvents(
   const { data, error } = await supabase
     .from("fie_domain_events")
     .select("event_type, provider_id, external_id, occurred_at, currency, payload")
+    .eq("provider_id", PROVIDER)
     .order("occurred_at", { ascending: true });
   if (error) throw error;
   return (data ?? []).map((row) => ({
@@ -178,10 +179,14 @@ async function loadEvents(
   }));
 }
 
-async function syncFromHera(
+/**
+ * Sync from Hera money traceability (tes_movimientos / venta_pos), not public.ventas.
+ * Matches Tesorería → Trazab. Dinero totals (efectivo + transferencias + otros métodos).
+ */
+async function syncFromTrazabilidad(
   supabase: ReturnType<typeof adminClient>,
   scope: "month" | "all",
-): Promise<{ upserted: number; scanned: number; scope: string }> {
+): Promise<{ upserted: number; scanned: number; scope: string; source: string }> {
   const bogotaNow = new Date(
     new Date().toLocaleString("en-US", { timeZone: "America/Bogota" }),
   );
@@ -189,77 +194,88 @@ async function syncFromHera(
   const m = String(bogotaNow.getMonth() + 1).padStart(2, "0");
   const monthStart = `${y}-${m}-01`;
 
+  // Drop legacy ventas-table sync so it cannot inflate dashboards
+  await supabase.from("fie_domain_events").delete().eq("provider_id", LEGACY_PROVIDER);
+
   let q = supabase
-    .from("ventas")
-    .select("id, fecha, valor, canal, created_at, archived")
-    .or("archived.is.null,archived.eq.false")
+    .from("tes_movimientos")
+    .select("id, tipo, valor, concepto, fecha, metodo, bucket, categoria, created_at, reversal_of_id")
+    .eq("tipo", "ingreso")
+    .eq("categoria", "venta_pos")
+    .is("reversal_of_id", null)
     .order("fecha", { ascending: true });
 
   if (scope === "month") {
     q = q.gte("fecha", monthStart);
+    // Replace month events for this provider (avoid stale ids)
+    await supabase
+      .from("fie_domain_events")
+      .delete()
+      .eq("provider_id", PROVIDER)
+      .gte("occurred_at", `${monthStart}T00:00:00-05:00`);
+  } else {
+    await supabase.from("fie_domain_events").delete().eq("provider_id", PROVIDER);
   }
 
-  const { data: ventas, error } = await q;
+  const { data: movs, error } = await q;
   if (error) throw error;
 
-  const ids = (ventas ?? []).map((v) => v.id as string);
-  const qtyBySale = new Map<string, number>();
-  if (ids.length > 0) {
-    // chunk to avoid URL limits
-    const chunk = 200;
-    for (let i = 0; i < ids.length; i += chunk) {
-      const slice = ids.slice(i, i + chunk);
-      const { data: items, error: itemsErr } = await supabase
-        .from("sale_items")
-        .select("sale_id, qty")
-        .in("sale_id", slice);
-      if (itemsErr) throw itemsErr;
-      for (const it of items ?? []) {
-        const sid = String(it.sale_id);
-        qtyBySale.set(sid, (qtyBySale.get(sid) ?? 0) + Number(it.qty ?? 0));
-      }
-    }
-  }
-
-  const rows = (ventas ?? []).map((v) => {
-    const id = String(v.id);
-    const valor = String(Math.round(Number(v.valor ?? 0)));
-    const fecha = String(v.fecha);
+  const rows: Record<string, unknown>[] = [];
+  for (const mov of movs ?? []) {
+    const id = String(mov.id);
+    const valor = String(Math.round(Number(mov.valor ?? 0)));
+    const fecha = String(mov.fecha);
     const occurredAt =
-      (v.created_at as string | null) ??
-      `${fecha}T12:00:00.000-05:00`;
-    const itemCount = String(Math.max(1, Math.round(qtyBySale.get(id) ?? 1)));
-    return {
+      (mov.created_at as string | null) ?? `${fecha}T12:00:00.000-05:00`;
+    const salePayload: SalePayload = {
+      orderId: id,
+      grossAmount: valor,
+      netAmount: valor,
+      itemCount: "1",
+      method: (mov.metodo as string | null) ?? undefined,
+      bucket: (mov.bucket as string | null) ?? undefined,
+      concept: (mov.concepto as string | null) ?? undefined,
+      channel: "trazabilidad",
+    };
+    rows.push({
       provider_id: PROVIDER,
       event_type: "SaleCreated",
       external_id: id,
       occurred_at: occurredAt,
       currency: CURRENCY,
+      payload: salePayload,
+    });
+    rows.push({
+      provider_id: PROVIDER,
+      event_type: "PaymentReceived",
+      external_id: `pay_${id}`,
+      occurred_at: occurredAt,
+      currency: CURRENCY,
       payload: {
-        orderId: id,
-        grossAmount: valor,
-        netAmount: valor,
-        itemCount,
-        channel: v.canal ?? undefined,
-      } satisfies SalePayload,
-    };
-  });
+        amount: valor,
+        method: (mov.metodo as string | null) ?? undefined,
+      },
+    });
+  }
 
   let upserted = 0;
   const batch = 100;
   for (let i = 0; i < rows.length; i += batch) {
     const part = rows.slice(i, i + batch);
-    const { error: upErr, count } = await supabase
-      .from("fie_domain_events")
-      .upsert(part, {
-        onConflict: "provider_id,event_type,external_id",
-        count: "exact",
-      });
+    const { error: upErr, count } = await supabase.from("fie_domain_events").upsert(part, {
+      onConflict: "provider_id,event_type,external_id",
+      count: "exact",
+    });
     if (upErr) throw upErr;
     upserted += count ?? part.length;
   }
 
-  return { upserted, scanned: rows.length, scope };
+  return {
+    upserted,
+    scanned: (movs ?? []).length,
+    scope,
+    source: "tes_movimientos.venta_pos",
+  };
 }
 
 function mapHeraWebhook(body: Record<string, unknown>): DomainEvent | null {
@@ -294,7 +310,12 @@ Deno.serve(async (req) => {
     const supabase = adminClient();
 
     if (req.method === "GET" && (path === "/health" || path === "/")) {
-      return json({ ok: true, service: "fie-os-sales", provider: PROVIDER });
+      return json({
+        ok: true,
+        service: "fie-os-sales",
+        provider: PROVIDER,
+        source: "tes_movimientos.venta_pos",
+      });
     }
 
     if (req.method === "GET" && path === "/v1/projections/sales") {
@@ -306,7 +327,7 @@ Deno.serve(async (req) => {
     if (req.method === "POST" && path === "/integrations/hera/sync") {
       const url = new URL(req.url);
       const scope = url.searchParams.get("scope") === "all" ? "all" : "month";
-      const result = await syncFromHera(supabase, scope);
+      const result = await syncFromTrazabilidad(supabase, scope);
       const events = await loadEvents(supabase);
       return json({
         ok: true,
