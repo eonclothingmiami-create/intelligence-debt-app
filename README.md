@@ -36,4 +36,11 @@ packages/
 npx pnpm@9.15.9 install
 npx pnpm@9.15.9 test
 npx pnpm@9.15.9 build
+npx pnpm@9.15.9 --filter @fie/web dev
 ```
+
+## Web app (MVP)
+
+- Landing: http://localhost:3000
+- Tablero OS: http://localhost:3000/app
+- PWA instalable desde el navegador del celular

@@ -60,3 +60,22 @@ export type MarketingPlanVsActual = {
   status: 'under_budget' | 'on_plan' | 'over_budget';
   alert: boolean;
 };
+
+/**
+ * Multi-channel plan vs execution for a period.
+ * Underspend (budget − actual > 0) frees capacity that can fund extra debt amortization.
+ */
+export type MarketingPortfolioVsActual = {
+  periodFrom: string;
+  periodTo: string;
+  currency: string;
+  channels: MarketingPlanVsActual[];
+  totalBudgetAmount: string;
+  totalActualAmount: string;
+  /** max(0, totalBudget − totalActual) — planned ads money not spent */
+  freedCapacityAmount: string;
+  /** max(0, totalActual − totalBudget) — ads overspend pressure */
+  overspendAmount: string;
+  /** true if any channel raised an alert under the user policy */
+  alert: boolean;
+};

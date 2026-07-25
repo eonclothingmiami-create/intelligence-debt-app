@@ -20,7 +20,9 @@ Recommendations never debt-only — cash projections must stay visible when weig
 | **Presupuesto** | `MarketingBudgetEntry.budgetAmount` | Plan, BEP planning scenarios, variance alerts  |
 | **Gasto real**  | `MarketingActualEntry.actualAmount` | Cash outflows, debt (via linked purchase), ROI |
 
-`compareMarketingPlanVsActual` alerts when `|actual − budget| / budget` exceeds the user's `alertDeviationRate` (no hardcoded %).
+`compareMarketingPlanVsActual` / `compareMarketingPortfolio` alert when `|actual − budget| / budget` exceeds the user's `alertDeviationRate` (no hardcoded %).
+
+Portfolio underspend (`freedCapacityAmount`) feeds the recommendation engine so a quieter ads month can raise the suggested extra debt payment automatically.
 
 Debt evolution still requires pairing actual spend with a card/purchase event in `@fie/financial-engine` (`AdSpendActualRecorded` + `PurchaseCreated`).
 

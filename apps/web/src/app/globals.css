@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #071510;
+  --forest: #0b2e24;
+  --moss: #1a5c45;
+  --mist: #d7e4dc;
+  --paper: #eef3ef;
+  --gold: #c8a45a;
+  --copper: #9a6b3f;
+  --danger: #a33b2d;
+  --ok: #1f6b4a;
+  --muted: #5a6b62;
+  --line: rgba(7, 21, 16, 0.12);
+  --shadow: 0 24px 60px rgba(7, 21, 16, 0.18);
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-forest: var(--forest);
+  --color-moss: var(--moss);
+  --color-mist: var(--mist);
+  --color-paper: var(--paper);
+  --color-gold: var(--gold);
+  --color-danger: var(--danger);
+  --color-ok: var(--ok);
+  --color-muted: var(--muted);
+  --font-sans: var(--font-body);
+  --font-serif: var(--font-display);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  color: var(--ink);
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(200, 164, 90, 0.18), transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, rgba(26, 92, 69, 0.22), transparent 50%),
+    linear-gradient(165deg, #e8f0ea 0%, var(--paper) 42%, #dfe9e3 100%);
+  font-family: var(--font-body), system-ui, sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.brand-mark {
+  font-family: var(--font-display), Georgia, serif;
+  letter-spacing: -0.03em;
+}
+
+.panel {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.metric {
+  font-variant-numeric: tabular-nums;
+}
+
+.hero-plane {
+  background:
+    linear-gradient(135deg, rgba(7, 21, 16, 0.88), rgba(11, 46, 36, 0.78)),
+    url("data:image/svg+xml,%3Csvg width='160' height='160' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 80h160M80 0v160' stroke='%23c8a45a' stroke-opacity='0.08'/%3E%3C/svg%3E"),
+    linear-gradient(120deg, #0b2e24, #163d31 55%, #214f3d);
+}

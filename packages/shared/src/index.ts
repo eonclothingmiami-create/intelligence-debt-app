@@ -44,4 +44,5 @@ export type {
   MarketingActualEntry,
   MarketingVariancePolicy,
   MarketingPlanVsActual,
+  MarketingPortfolioVsActual,
 } from './marketing.js';

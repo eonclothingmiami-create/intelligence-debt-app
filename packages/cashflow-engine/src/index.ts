@@ -2,6 +2,7 @@ export const ENGINE_NAME = 'cashflow-engine' as const;
 
 export {
   compareMarketingPlanVsActual,
+  compareMarketingPortfolio,
   totalMarketingBudget,
   totalMarketingActual,
 } from './marketing/planVsActual.js';

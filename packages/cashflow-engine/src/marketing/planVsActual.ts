@@ -2,7 +2,9 @@ import { Money, Decimal, FinancialEngineError } from '@fie/financial-engine';
 import type {
   MarketingActualEntry,
   MarketingBudgetEntry,
+  MarketingChannel,
   MarketingPlanVsActual,
+  MarketingPortfolioVsActual,
   MarketingVariancePolicy,
 } from '@fie/shared';
 
@@ -10,11 +12,7 @@ function sumAmounts(entries: Array<{ amount: string }>, currency: string): Money
   return entries.reduce((acc, e) => acc.add(Money.from(e.amount, currency)), Money.zero(currency));
 }
 
-/**
- * Compare planned marketing budget vs actual platform charges.
- * Alerts use the user's deviation policy — never a hardcoded %.
- */
-export function compareMarketingPlanVsActual(input: {
+function evaluateChannel(input: {
   currency: string;
   channelId: string;
   periodFrom: string;
@@ -87,6 +85,103 @@ export function compareMarketingPlanVsActual(input: {
     varianceRate,
     status,
     alert,
+  };
+}
+
+/**
+ * Compare planned marketing budget vs actual platform charges for one channel.
+ * Alerts use the user's deviation policy — never a hardcoded %.
+ */
+export function compareMarketingPlanVsActual(input: {
+  currency: string;
+  channelId: string;
+  periodFrom: string;
+  periodTo: string;
+  budgets: MarketingBudgetEntry[];
+  actuals: MarketingActualEntry[];
+  policy: MarketingVariancePolicy;
+}): MarketingPlanVsActual {
+  return evaluateChannel(input);
+}
+
+/**
+ * Multi-channel portfolio: TikTok / Meta / Google / … budgets vs actuals.
+ * Underspend becomes `freedCapacityAmount` for debt-capacity recommendations.
+ */
+export function compareMarketingPortfolio(input: {
+  currency: string;
+  periodFrom: string;
+  periodTo: string;
+  channels: MarketingChannel[];
+  budgets: MarketingBudgetEntry[];
+  actuals: MarketingActualEntry[];
+  policy: MarketingVariancePolicy;
+}): MarketingPortfolioVsActual {
+  const active = [...input.channels]
+    .filter((c) => c.active)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+
+  const channelIds = new Set(active.map((c) => c.id));
+  // Include any budget/actual channel not in catalog so orphan spend is still visible.
+  for (const b of input.budgets) {
+    if (
+      b.currency === input.currency &&
+      b.periodFrom === input.periodFrom &&
+      b.periodTo === input.periodTo
+    ) {
+      channelIds.add(b.channelId);
+    }
+  }
+  for (const a of input.actuals) {
+    if (
+      a.currency === input.currency &&
+      a.occurredOn >= input.periodFrom &&
+      a.occurredOn <= input.periodTo
+    ) {
+      channelIds.add(a.channelId);
+    }
+  }
+
+  const orderedIds = [
+    ...active.map((c) => c.id),
+    ...[...channelIds].filter((id) => !active.some((c) => c.id === id)).sort(),
+  ];
+
+  const channels = orderedIds.map((channelId) =>
+    evaluateChannel({
+      currency: input.currency,
+      channelId,
+      periodFrom: input.periodFrom,
+      periodTo: input.periodTo,
+      budgets: input.budgets,
+      actuals: input.actuals,
+      policy: input.policy,
+    }),
+  );
+
+  const totalBudget = sumAmounts(
+    channels.map((c) => ({ amount: c.budgetAmount })),
+    input.currency,
+  );
+  const totalActual = sumAmounts(
+    channels.map((c) => ({ amount: c.actualAmount })),
+    input.currency,
+  );
+  const net = totalBudget.sub(totalActual);
+  const zero = Money.zero(input.currency);
+  const freed = net.isPositive() ? net : zero;
+  const overspend = net.isNegative() ? net.neg() : zero;
+
+  return {
+    periodFrom: input.periodFrom,
+    periodTo: input.periodTo,
+    currency: input.currency,
+    channels,
+    totalBudgetAmount: totalBudget.toString(),
+    totalActualAmount: totalActual.toString(),
+    freedCapacityAmount: freed.toString(),
+    overspendAmount: overspend.toString(),
+    alert: channels.some((c) => c.alert),
   };
 }
 

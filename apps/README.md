@@ -1,11 +1,18 @@
-# Apps (placeholders)
+# Apps
 
-This directory will host application shells in later phases:
+| App   | Package    | Role                                     |
+| ----- | ---------- | ---------------------------------------- |
+| `web` | `@fie/web` | Business Financial OS UI (Next.js) + PWA |
+| `api` | —          | NestJS + Prisma (siguiente fase)         |
 
-| App   | Stack                      | Phase                |
-| ----- | -------------------------- | -------------------- |
-| `web` | Next.js + React + Tailwind | After Financial Core |
-| `api` | NestJS + Prisma            | After Financial Core |
+## Web (MVP)
 
-**Phase 1 rule:** no financial formulas, no UI, no auth, no Supabase in these apps.
-All calculations live in `@fie/financial-engine`.
+```bash
+npx pnpm@9.15.9 --filter @fie/web dev
+```
+
+Abre [http://localhost:3000](http://localhost:3000) (landing) y [http://localhost:3000/app](http://localhost:3000/app) (tablero).
+
+Motores conectados: break-even, liquidez, marketing plan-vs-actual, risk score, recommendation.
+
+PWA: `manifest.webmanifest` + `sw.js` — en el celular, “Instalar app / Agregar a inicio”.
