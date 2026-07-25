@@ -19,7 +19,7 @@ import {
   type DebtWorkspace,
 } from '@/lib/debtStore';
 import type { LiquidityView } from '@/lib/engines';
-import { fetchSalesDashboard, pingApi, postHeraSale } from '@/lib/erpApi';
+import { fetchSalesDashboard, pingApi, syncHeraSalesMonth } from '@/lib/erpApi';
 import { formatCop, formatNumber, formatPct } from '@/lib/format';
 
 type Tab = 'overview' | 'costs' | 'sales' | 'debts' | 'marketing' | 'decision';
@@ -91,7 +91,6 @@ export function OsShell() {
   const [newFixed, setNewFixed] = useState({ label: '', category: '', amount: '' });
   const [salesDash, setSalesDash] = useState<SalesDashboardSnapshot | null>(null);
   const [apiOnline, setApiOnline] = useState(false);
-  const [simSaleAmount, setSimSaleAmount] = useState('250000');
   const [debtWs, setDebtWs] = useState<DebtWorkspace>(() => createDemoDebtWorkspace());
 
   const fixedBurn = useMemo(() => breakEven?.totalFixedCosts ?? '0', [breakEven]);
@@ -127,15 +126,21 @@ export function OsShell() {
       return;
     }
     try {
-      const dash = await fetchSalesDashboard();
-      setSalesDash(dash);
+      // Pull this month from Hera → OS events, then show projection (never reads ERP tables in UI)
+      const synced = await syncHeraSalesMonth();
+      setSalesDash(synced.dashboard);
       if (model) {
-        const next = { ...model, projectedSales: dash.month.netSales };
+        const next = { ...model, projectedSales: synced.dashboard.month.netSales };
         setModel(next);
         setBreakEven(await actionComputeBreakEven(next));
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'No se pudo leer proyección ERP');
+      try {
+        const dash = await fetchSalesDashboard();
+        setSalesDash(dash);
+      } catch {
+        setError(e instanceof Error ? e.message : 'No se pudo sincronizar ventas Hera');
+      }
     }
   }
 
@@ -143,36 +148,9 @@ export function OsShell() {
     void refreshSalesFromErp();
     const id = window.setInterval(() => {
       void refreshSalesFromErp();
-    }, 8000);
+    }, 60_000);
     return () => window.clearInterval(id);
   }, []);
-
-  async function simulateHeraSale() {
-    setError(null);
-    startTransition(async () => {
-      try {
-        const dash = await postHeraSale({
-          orderId: `sim_${Date.now()}`,
-          netAmount: simSaleAmount || '0',
-          itemCount: '1',
-        });
-        setSalesDash(dash);
-        setApiOnline(true);
-        if (model) {
-          const next = { ...model, projectedSales: dash.month.netSales };
-          setModel(next);
-          setBreakEven(await actionComputeBreakEven(next));
-        }
-        setTab('sales');
-      } catch (e) {
-        setError(
-          e instanceof Error
-            ? `${e.message}. Arranca la API: pnpm --filter @fie/api dev`
-            : 'API ERP no disponible',
-        );
-      }
-    });
-  }
 
   function recomputeBreakEven(next: BreakEvenModel) {
     setModel(next);
@@ -420,12 +398,11 @@ export function OsShell() {
       ) : null}
 
       {tab === 'sales' ? (
-        <section className="grid gap-4 lg:grid-cols-2">
+        <section className="space-y-4">
           <div className="panel rounded-2xl p-4 md:p-6">
             <h2 className="brand-mark text-2xl text-forest">Ventas desde Hera</h2>
             <p className="mt-1 text-sm text-muted">
-              El Financial OS solo consume eventos. Hera publica; aquí se proyecta día / mes /
-              acumulado y se actualiza el BEP.
+              Sync one-way: Hera → eventos del OS (Supabase). El tablero no lee tablas del ERP.
             </p>
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
               <Metric
@@ -446,42 +423,21 @@ export function OsShell() {
             </div>
             <button
               type="button"
-              className="mt-6 rounded-full border border-[var(--line)] bg-white/70 px-4 py-2 text-sm font-medium"
+              className="mt-6 rounded-full bg-forest px-4 py-2 text-sm font-semibold text-mist"
               onClick={() => void refreshSalesFromErp()}
             >
-              Actualizar desde API
-            </button>
-          </div>
-          <div className="panel rounded-2xl p-4 md:p-6">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted">
-              Simular push de Hera
-            </h3>
-            <p className="mt-2 text-sm text-muted">
-              En producción Hera llama{' '}
-              <code className="text-xs">POST /integrations/hera/events</code>. Aquí puedes simular
-              una venta para ver el tablero en vivo.
-            </p>
-            <label className="mt-4 block text-sm">
-              Monto neto venta
-              <input
-                className="metric mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2"
-                value={simSaleAmount}
-                onChange={(e) => setSimSaleAmount(e.target.value)}
-              />
-            </label>
-            <button
-              type="button"
-              onClick={() => void simulateHeraSale()}
-              className="mt-4 rounded-full bg-forest px-4 py-2 text-sm font-semibold text-mist"
-            >
-              Enviar evento SaleCreated
+              Actualizar ventas del mes
             </button>
             {!apiOnline ? (
               <p className="mt-4 text-sm text-danger">
-                API no detectada en localhost:4000. Ejecuta{' '}
-                <code className="text-xs">npx pnpm@9.15.9 --filter @fie/api dev</code>
+                No se pudo contactar la API de ventas (Supabase Edge).
               </p>
-            ) : null}
+            ) : (
+              <p className="mt-4 text-xs text-muted">
+                Fuente: sync mes → <code className="text-xs">fie_domain_events</code>. Estado API:
+                en línea.
+              </p>
+            )}
           </div>
         </section>
       ) : null}

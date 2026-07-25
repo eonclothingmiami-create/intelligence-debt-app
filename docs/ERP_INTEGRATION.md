@@ -15,8 +15,11 @@ The Business Financial OS is a **client** of the ERP:
 | Piece          | Path                                                                           |
 | -------------- | ------------------------------------------------------------------------------ |
 | Ports / events | [`packages/erp-integration`](../packages/erp-integration/docs/ARCHITECTURE.md) |
-| HTTP ingress   | [`apps/api`](../apps/api/README.md) — `POST /integrations/hera/events`         |
+| HTTP ingress   | Edge `fie-os-sales` on Supabase — see [`SUPABASE_OS.md`](./SUPABASE_OS.md)     |
+| Local API      | [`apps/api`](../apps/api/README.md) — optional local mirror                    |
 | Dashboard      | [`apps/web`](../apps/web) tab **Ventas ERP**                                   |
+
+Production path: Hera `public.ventas` → Edge sync → `fie_domain_events` → web projections.
 
 ```bash
 npx pnpm@9.15.9 --filter @fie/api dev   # :4000
