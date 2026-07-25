@@ -1,12 +1,17 @@
 import type { BreakEvenModel, LineItem } from '../shared/types.js';
 import { priceFromUtility } from '../catalog/model.js';
 import { Money } from '@fie/financial-engine';
+import { payrollOneSmmlvWorker } from '../payroll/colombia.js';
 
 /**
  * EXAMPLE USER DATASET for tests only — not a product default.
  * Mirrors one company's spreadsheet (Local 311) as if the user entered it.
  */
 export function exampleUserDatasetLocal311(): BreakEvenModel {
+  /** 1 trabajador SMMLV 2026 + provisiones (con parafiscales). Auto desde catálogo legal. */
+  const payroll2026 = payrollOneSmmlvWorker(2026, false);
+  const nominaConProvision = payroll2026.totalMonthly;
+
   const variableCosts: LineItem[] = [
     {
       id: 'v_bolsas_trans',
@@ -128,8 +133,15 @@ export function exampleUserDatasetLocal311(): BreakEvenModel {
     {
       id: 'f_nomina',
       label: 'NOMINA CON PROVISION',
-      amount: '3000000',
+      amount: nominaConProvision,
       category: 'Nómina',
+      kind: 'payroll_with_provisions',
+      notes: [
+        `Auto SMMLV ${payroll2026.year}: base ${payroll2026.baseSalary} + transporte + SS + parafiscales + provisiones.`,
+        `Total empleador/mes: ${payroll2026.totalMonthly}. Quincena: ${payroll2026.quincenaTotal}.`,
+        payroll2026.source,
+        'Editable; recalcular desde Costos → Nómina Colombia si cambia el año o el salario.',
+      ].join(' '),
       active: true,
       sortOrder: 3,
     },
@@ -308,9 +320,10 @@ export const LOCAL311_EXPECTED = {
   variableTotal: '3448',
   fullUnitCost: '17448',
   salePrice: '34896',
-  fixedTotal: '15195000',
-  breakEvenUnits: '870.87',
-  breakEvenSales: '30390000',
-  dailyUnits: '33.50',
-  dailyMoney: '1168846',
+  /** Includes auto payroll SMMLV 2026 (1 worker, with parafiscales) — not a hardcoded 3M. */
+  fixedTotal: '15146944',
+  breakEvenUnits: '868.12',
+  breakEvenSales: '30293888',
+  dailyUnits: '33.39',
+  dailyMoney: '1165150',
 } as const;

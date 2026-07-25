@@ -39,10 +39,12 @@ export const WORKSPACE_CONFIRMED_CASH_SNAPSHOT: WorkspaceCashSnapshot = {
   cashOnHand: '12500000',
   recompraShareOfCash: '0.70',
   commitments: {
+    payroll: '2951944',
+    creditCardInstallment: '1866000',
     notes:
-      'Debe pagar nómina y cuota de tarjeta este mes. Del efectivo actual, ~70% es recompra de mercancía. Montos exactos de nómina y cuota pendientes de confirmar.',
+      'Nómina auto SMMLV 2026 (1 trabajador + provisiones + parafiscales) ≈ $2.951.944/mes; quincena ≈ $1.475.972. Cuota TC $1.866.000. ~70% caja a recompra. Faltan días de ventas del mes.',
   },
-  updatedAt: '2026-07-25T23:10:00.000Z',
+  updatedAt: '2026-07-25T23:20:00.000Z',
 };
 
 export function recompraAmount(snapshot: WorkspaceCashSnapshot): string {

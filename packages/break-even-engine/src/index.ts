@@ -24,3 +24,15 @@ export type {
   BreakEvenSnapshot,
   PeriodBreakdown,
 } from './shared/types.js';
+export {
+  COLOMBIA_SMMLV_BY_YEAR,
+  COLOMBIA_ARL_CLASS_RATES,
+  colombiaSmmlvForYear,
+  computeColombiaEmployerPayroll,
+  payrollOneSmmlvWorker,
+} from './payroll/colombia.js';
+export type {
+  ColombiaSmmlvYear,
+  ColombiaPayrollInput,
+  ColombiaPayrollBreakdown,
+} from './payroll/colombia.js';

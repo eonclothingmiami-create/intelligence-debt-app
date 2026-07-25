@@ -7,6 +7,18 @@ import type { MarketingChannel, MarketingPortfolioVsActual } from '@fie/shared';
 import { AiRecommendPanel } from '@/components/os/AiRecommendPanel';
 import { DebtsPanel } from '@/components/os/DebtsPanel';
 import { PoliciesPanel } from '@/components/os/PoliciesPanel';
+import { PayrollColombiaPanel } from '@/components/os/PayrollColombiaPanel';
+import { applyHeraPayrollToModel } from '@/lib/heraPayroll';
+import {
+  applyMarginsToModel,
+  loadMarginWorkspace,
+  saveMarginWorkspace,
+  type ChannelMarginRow,
+  type MarginWorkspace,
+} from '@/lib/marginStore';
+import type { ColombiaPayrollBreakdown } from '@fie/break-even-engine';
+import { priceFromUtility, sumVariableCostsPerUnit } from '@fie/break-even-engine';
+import { Money } from '@fie/financial-engine';
 import {
   actionBusinessHealth,
   actionComputeBreakEven,
@@ -28,6 +40,7 @@ import { fetchSalesDashboard, pingApi, syncHeraSalesMonth } from '@/lib/erpApi';
 import { formatCop, formatNumber, formatPct } from '@/lib/format';
 import { isLiquidityPolicyComplete, loadLiquidityPolicy } from '@/lib/policyStore';
 import { loadCashSnapshot, saveCashSnapshot } from '@/lib/cashStore';
+import { deriveNearTermCashPlan } from '@/lib/cashPlan';
 import {
   cashAfterRecompra,
   recompraAmount,
@@ -98,7 +111,7 @@ export function OsShell() {
 
   const [cashSnapshot, setCashSnapshot] = useState<WorkspaceCashSnapshot>(() => loadCashSnapshot());
   const [cash, setCash] = useState(() => loadCashSnapshot().cashOnHand || '');
-  /** Free cash for extra debt — unknown until nómina + cuota are confirmed; do not invent. */
+  /** Free cash for extra debt — filled from near-term plan when derivable. */
   const [freeCash, setFreeCash] = useState('');
   const [proposedExtra, setProposedExtra] = useState('');
   const [liquidityPolicy, setLiquidityPolicy] = useState<LiquidityPolicy>(() =>
@@ -108,6 +121,8 @@ export function OsShell() {
   const [interestSaved, setInterestSaved] = useState('120000');
   const [channelRows, setChannelRows] = useState<ChannelBudgetRow[]>(DEFAULT_ROWS);
   const [newFixed, setNewFixed] = useState({ label: '', category: '', amount: '' });
+  const [newVariable, setNewVariable] = useState({ label: '', category: '', amount: '' });
+  const [margins, setMargins] = useState<MarginWorkspace>(() => loadMarginWorkspace());
   const [salesDash, setSalesDash] = useState<SalesDashboardSnapshot | null>(null);
   const [apiOnline, setApiOnline] = useState(false);
   const [debtWs, setDebtWs] = useState<DebtWorkspace>(() => createDemoDebtWorkspace());
@@ -119,6 +134,21 @@ export function OsShell() {
   const minCashFloor = liquidityPolicy.minCashFloor ?? '';
   const earmarkedRecompra = useMemo(() => recompraAmount(cashSnapshot), [cashSnapshot]);
   const cashLeftAfterRecompra = useMemo(() => cashAfterRecompra(cashSnapshot), [cashSnapshot]);
+  const cashPlan = useMemo(
+    () =>
+      deriveNearTermCashPlan({
+        cash: { ...cashSnapshot, cashOnHand: cash || cashSnapshot.cashOnHand },
+        model,
+        debts: debtWs,
+      }),
+    [cashSnapshot, cash, model, debtWs],
+  );
+
+  useEffect(() => {
+    if (cashPlan.immediateFreeCash != null) {
+      setFreeCash(cashPlan.immediateFreeCash);
+    }
+  }, [cashPlan.immediateFreeCash]);
 
   function persistCashField(nextCash: string) {
     setCash(nextCash);
@@ -137,14 +167,42 @@ export function OsShell() {
     setError(null);
     startTransition(async () => {
       try {
-        const { model: demo, breakEven: snap } = await actionLoadDemo();
-        setModel(demo);
-        setBreakEven(snap);
+        const { model: demo } = await actionLoadDemo();
+        let next = demo;
+        try {
+          next = applyMarginsToModel(demo, loadMarginWorkspace());
+        } catch {
+          /* keep demo products if margins incomplete */
+        }
+        setModel(next);
+        setBreakEven(await actionComputeBreakEven(next));
         setTab('overview');
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Error cargando demo');
       }
     });
+  }
+
+  function recomputeBreakEven(next: BreakEvenModel) {
+    setModel(next);
+    setError(null);
+    startTransition(async () => {
+      try {
+        setBreakEven(await actionComputeBreakEven(next));
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Error en punto de equilibrio');
+      }
+    });
+  }
+
+  /** Keep channel sale prices in sync when unit costs or margin policy change. */
+  function recomputeWithMargins(nextModel: BreakEvenModel, nextMargins = margins) {
+    try {
+      recomputeBreakEven(applyMarginsToModel(nextModel, nextMargins));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error aplicando márgenes');
+      recomputeBreakEven(nextModel);
+    }
   }
 
   useEffect(() => {
@@ -159,7 +217,6 @@ export function OsShell() {
       return;
     }
     try {
-      // Pull this month from Hera → OS events, then show projection (never reads ERP tables in UI)
       const synced = await syncHeraSalesMonth();
       setSalesDash(synced.dashboard);
       if (model) {
@@ -184,18 +241,6 @@ export function OsShell() {
     }, 60_000);
     return () => window.clearInterval(id);
   }, []);
-
-  function recomputeBreakEven(next: BreakEvenModel) {
-    setModel(next);
-    setError(null);
-    startTransition(async () => {
-      try {
-        setBreakEven(await actionComputeBreakEven(next));
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Error en punto de equilibrio');
-      }
-    });
-  }
 
   function updateFixedCost(
     id: string,
@@ -243,6 +288,132 @@ export function OsShell() {
       ],
     });
     setNewFixed({ label: '', category: '', amount: '' });
+    setError(null);
+  }
+
+  function updateVariableCost(
+    id: string,
+    patch: Partial<{ label: string; category: string; amount: string }>,
+  ) {
+    if (!model) return;
+    recomputeWithMargins({
+      ...model,
+      variableCosts: model.variableCosts.map((l) => (l.id === id ? { ...l, ...patch } : l)),
+    });
+  }
+
+  function removeVariableCost(id: string) {
+    if (!model) return;
+    const remaining = model.variableCosts
+      .filter((l) => l.id !== id)
+      .map((l, idx) => ({ ...l, sortOrder: idx }));
+    recomputeWithMargins({ ...model, variableCosts: remaining });
+  }
+
+  function addVariableCost() {
+    if (!model) return;
+    const label = newVariable.label.trim();
+    const category = newVariable.category.trim() || 'Variable';
+    const amount = newVariable.amount.trim() || '0';
+    if (!label) {
+      setError('Escribe un nombre para el costo variable.');
+      return;
+    }
+    const id = `v_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+    const nextSort =
+      model.variableCosts.reduce((max, l) => (l.sortOrder > max ? l.sortOrder : max), -1) + 1;
+    recomputeWithMargins({
+      ...model,
+      variableCosts: [
+        ...model.variableCosts,
+        { id, label, category, amount, active: true, sortOrder: nextSort },
+      ],
+    });
+    setNewVariable({ label: '', category: '', amount: '' });
+    setError(null);
+  }
+
+  function updateChannelMargin(id: string, patch: Partial<ChannelMarginRow>) {
+    const next: MarginWorkspace = {
+      ...margins,
+      channels: margins.channels.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+    };
+    setMargins(next);
+  }
+
+  function saveMarginsAndApply() {
+    if (!model) return;
+    const saved = saveMarginWorkspace(margins);
+    setMargins(saved);
+    recomputeWithMargins(model, saved);
+  }
+
+  function applyColombiaPayroll(breakdown: ColombiaPayrollBreakdown) {
+    if (!model) return;
+    const existing = model.fixedCosts.find(
+      (l) => l.id === 'f_nomina' || l.kind === 'payroll_with_provisions',
+    );
+    const notes = [
+      `Auto SMMLV ${breakdown.year}: base ${breakdown.baseSalary}.`,
+      `Total ${breakdown.totalMonthly}; quincena ${breakdown.quincenaTotal}.`,
+      breakdown.source,
+    ].join(' ');
+    if (existing) {
+      recomputeBreakEven({
+        ...model,
+        fixedCosts: model.fixedCosts.map((l) =>
+          l.id === existing.id
+            ? {
+                ...l,
+                label: 'NOMINA CON PROVISION',
+                category: 'Nómina',
+                kind: 'payroll_with_provisions',
+                amount: breakdown.totalMonthly,
+                notes,
+                active: true,
+              }
+            : l,
+        ),
+      });
+    } else {
+      const nextSort =
+        model.fixedCosts.reduce((max, l) => (l.sortOrder > max ? l.sortOrder : max), -1) + 1;
+      recomputeBreakEven({
+        ...model,
+        fixedCosts: [
+          ...model.fixedCosts,
+          {
+            id: 'f_nomina',
+            label: 'NOMINA CON PROVISION',
+            category: 'Nómina',
+            kind: 'payroll_with_provisions',
+            amount: breakdown.totalMonthly,
+            notes,
+            active: true,
+            sortOrder: nextSort,
+          },
+        ],
+      });
+    }
+    setError(null);
+  }
+
+  function applyHeraEmployeesPayroll(input: {
+    totalMonthly: string;
+    quincenaTotal: string;
+    workerCount: number;
+    year: number;
+    notes: string;
+  }) {
+    if (!model) return;
+    recomputeBreakEven(
+      applyHeraPayrollToModel(model, {
+        totalMonthly: input.totalMonthly,
+        workerCount: input.workerCount,
+        year: input.year,
+        notes: `${input.notes} Quincena ≈ ${input.quincenaTotal}.`,
+      }),
+    );
     setError(null);
   }
 
@@ -347,11 +518,23 @@ export function OsShell() {
         liquidityPolicy.notes ? `Notas política: ${liquidityPolicy.notes}` : '',
         'Objetivo declarado: salir de deudas sin perder liquidez operativa; robustecer el negocio.',
         `Caja hoy: ${cash || '—'}; ~${Math.round(Number(cashSnapshot.recompraShareOfCash || 0) * 100)}% earmarked a recompra (≈ ${earmarkedRecompra}).`,
-        `Tras recompra queda ≈ ${cashLeftAfterRecompra} para nómina + cuota TC (montos exactos pendientes).`,
+        `Tras recompra queda ≈ ${cashLeftAfterRecompra}.`,
+        cashPlan.payrollMonthly
+          ? `Nómina mensual (costos fijos + provisiones): ${cashPlan.payrollMonthly}; próxima quincena: ${cashPlan.nextQuincena}.`
+          : 'Nómina no encontrada en costos fijos.',
+        cashPlan.creditCardInstallment
+          ? `Cuota TC: ${cashPlan.creditCardInstallment}.`
+          : 'Cuota TC no encontrada en deudas.',
+        `Días de calendario de ventas restantes en el mes (incluye hoy): ${cashPlan.remainingCalendarDaysInMonth}.`,
         freeCash.trim()
-          ? `Flujo libre declarado para abono extra: ${freeCash}`
-          : 'Flujo libre para abono extra: pendiente hasta confirmar nómina y cuota de tarjeta.',
+          ? `Capacidad inmediata (tras recompra + quincena + cuota TC): ${freeCash}`
+          : 'Capacidad inmediata pendiente de datos.',
+        ...cashPlan.notes,
         cashSnapshot.commitments.notes ?? '',
+        `COGS prenda: ${margins.productCost || '—'}. Márgenes por canal: ${margins.channels
+          .map((c) => `${c.label} utilidad ${c.utilityOnPrice} mix ${c.mixWeight}`)
+          .join('; ')}.`,
+        breakEven ? `Margen contribución blend: ${breakEven.contributionMarginRate}` : '',
       ].filter(Boolean),
     });
   }
@@ -370,7 +553,7 @@ export function OsShell() {
     }
     if (!freeCash.trim()) {
       setError(
-        'Falta el flujo libre tras nómina y cuota. Confirma esos montos o escribe 0 si no queda nada para abono extra.',
+        'Falta capacidad inmediata. Espera a que carguen nómina/cuota o pulsa «Recalcular desde costos + deudas».',
       );
       setTab('decision');
       return;
@@ -734,6 +917,173 @@ export function OsShell() {
               </button>
             </div>
           </div>
+
+          <div className="panel rounded-2xl p-4 md:p-6">
+            <h2 className="brand-mark text-2xl text-forest">Costos variables (por unidad)</h2>
+            <p className="mt-1 text-sm text-muted">
+              Empaque, insumos, logística unitaria, etc. Entran al costo completo de la prenda y al
+              BEP.
+            </p>
+            <ul className="mt-6 divide-y divide-[var(--line)]">
+              {model.variableCosts.map((line) => (
+                <li
+                  key={line.id}
+                  className="grid gap-2 py-4 md:grid-cols-[1.2fr_1fr_0.9fr_auto] md:items-end"
+                >
+                  <label className="block text-xs text-muted">
+                    Nombre
+                    <input
+                      className="mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm text-ink"
+                      value={line.label}
+                      onChange={(e) => updateVariableCost(line.id, { label: e.target.value })}
+                    />
+                  </label>
+                  <label className="block text-xs text-muted">
+                    Categoría
+                    <input
+                      className="mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm text-ink"
+                      value={line.category}
+                      onChange={(e) => updateVariableCost(line.id, { category: e.target.value })}
+                    />
+                  </label>
+                  <label className="block text-xs text-muted">
+                    Monto / unidad
+                    <input
+                      className="metric mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm text-ink"
+                      inputMode="decimal"
+                      value={line.amount}
+                      onChange={(e) => updateVariableCost(line.id, { amount: e.target.value })}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => removeVariableCost(line.id)}
+                    className="rounded-full border border-danger/30 px-3 py-2 text-sm font-medium text-danger hover:bg-danger/10"
+                  >
+                    Eliminar
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-4 grid gap-3 md:grid-cols-[1.2fr_1fr_0.9fr_auto] md:items-end">
+              <label className="block text-xs text-muted">
+                Nombre
+                <input
+                  className="mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
+                  placeholder="Ej. Empaque extra"
+                  value={newVariable.label}
+                  onChange={(e) => setNewVariable((s) => ({ ...s, label: e.target.value }))}
+                />
+              </label>
+              <label className="block text-xs text-muted">
+                Categoría
+                <input
+                  className="mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
+                  placeholder="Ej. Empaque"
+                  value={newVariable.category}
+                  onChange={(e) => setNewVariable((s) => ({ ...s, category: e.target.value }))}
+                />
+              </label>
+              <label className="block text-xs text-muted">
+                Monto
+                <input
+                  className="metric mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
+                  inputMode="decimal"
+                  value={newVariable.amount}
+                  onChange={(e) => setNewVariable((s) => ({ ...s, amount: e.target.value }))}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={addVariableCost}
+                className="rounded-full bg-forest px-4 py-2 text-sm font-semibold text-mist"
+              >
+                Agregar
+              </button>
+            </div>
+          </div>
+
+          <div className="panel rounded-2xl p-4 md:p-6">
+            <h2 className="brand-mark text-2xl text-forest">Margen y canales</h2>
+            <p className="mt-1 text-sm text-muted">
+              Costo de prenda + utilidad sobre precio por canal (no todos venden igual). El BEP usa
+              el mix ponderado. Partimos de ~50% en todos; ajústalo.
+            </p>
+            <label className="mt-4 block text-sm">
+              Costo de mercancía / prenda (COGS)
+              <input
+                className="metric mt-1 w-full max-w-xs rounded-lg border border-[var(--line)] bg-white px-3 py-2"
+                value={margins.productCost}
+                onChange={(e) => setMargins({ ...margins, productCost: e.target.value })}
+              />
+            </label>
+            <ul className="mt-6 space-y-3">
+              {margins.channels.map((ch) => {
+                let previewPrice = '—';
+                try {
+                  if (margins.productCost.trim()) {
+                    const vars = sumVariableCostsPerUnit(model);
+                    const full = Money.from(margins.productCost, model.currency).add(vars);
+                    previewPrice = formatCop(
+                      priceFromUtility(full, ch.utilityOnPrice || '0.5').toString(),
+                    );
+                  }
+                } catch {
+                  previewPrice = '—';
+                }
+                return (
+                  <li
+                    key={ch.id}
+                    className="rounded-xl border border-[var(--line)] bg-white/50 p-3 grid gap-2 sm:grid-cols-4 sm:items-end"
+                  >
+                    <label className="block text-xs text-muted sm:col-span-1">
+                      Canal
+                      <input
+                        className="mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
+                        value={ch.label}
+                        onChange={(e) => updateChannelMargin(ch.id, { label: e.target.value })}
+                      />
+                    </label>
+                    <label className="block text-xs text-muted">
+                      Utilidad (0.50 = 50%)
+                      <input
+                        className="metric mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
+                        value={ch.utilityOnPrice}
+                        onChange={(e) =>
+                          updateChannelMargin(ch.id, { utilityOnPrice: e.target.value })
+                        }
+                      />
+                    </label>
+                    <label className="block text-xs text-muted">
+                      Mix ventas (0–1)
+                      <input
+                        className="metric mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
+                        value={ch.mixWeight}
+                        onChange={(e) => updateChannelMargin(ch.id, { mixWeight: e.target.value })}
+                      />
+                    </label>
+                    <p className="text-xs text-muted pb-2">Precio implícito ≈ {previewPrice}</p>
+                  </li>
+                );
+              })}
+            </ul>
+            <button
+              type="button"
+              onClick={saveMarginsAndApply}
+              className="mt-5 rounded-full bg-forest px-4 py-2 text-sm font-semibold text-mist"
+            >
+              Guardar márgenes y recalcular BEP
+            </button>
+            <p className="mt-2 text-xs text-muted">
+              Margen de contribución actual (blend):{' '}
+              {breakEven ? formatPct(breakEven.contributionMarginRate) : '—'}
+            </p>
+          </div>
+
+          <PayrollColombiaPanel
+            onApply={applyColombiaPayroll}
+            onApplyHera={applyHeraEmployeesPayroll}
+          />
         </section>
       ) : null}
 
@@ -873,18 +1223,41 @@ export function OsShell() {
             </label>
             <p className="mt-1 text-xs text-muted">
               ~{Math.round(Number(cashSnapshot.recompraShareOfCash || 0) * 100)}% a recompra (≈{' '}
-              {formatCop(earmarkedRecompra)}) · queda ≈ {formatCop(cashLeftAfterRecompra)} para
-              nómina + cuota TC
+              {formatCop(earmarkedRecompra)}) · queda ≈ {formatCop(cashLeftAfterRecompra)}
             </p>
+            <div className="mt-3 rounded-xl border border-[var(--line)] bg-white/40 px-3 py-2 text-xs text-muted space-y-1">
+              <p>
+                Nómina mensual (costos fijos):{' '}
+                {cashPlan.payrollMonthly ? formatCop(cashPlan.payrollMonthly) : '—'} → quincena{' '}
+                {cashPlan.nextQuincena ? formatCop(cashPlan.nextQuincena) : '—'}
+              </p>
+              <p>
+                Cuota TC (deudas):{' '}
+                {cashPlan.creditCardInstallment ? formatCop(cashPlan.creditCardInstallment) : '—'}
+              </p>
+              <p>
+                Días de ventas restantes en el mes: {cashPlan.remainingCalendarDaysInMonth} (incluye
+                hoy; las ventas futuras aún no están en caja)
+              </p>
+            </div>
             <label className="mt-3 block text-sm">
-              Flujo libre mensual (para abono extra — tras nómina y cuota)
+              Capacidad inmediata (auto: tras recompra + quincena + cuota TC)
               <input
                 className="metric mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2"
                 value={freeCash}
-                placeholder="Pendiente: confirma nómina y cuota"
+                placeholder="Se calcula al cargar nómina y cuota"
                 onChange={(e) => setFreeCash(e.target.value)}
               />
             </label>
+            <button
+              type="button"
+              className="mt-2 text-xs underline text-muted"
+              onClick={() => {
+                if (cashPlan.immediateFreeCash != null) setFreeCash(cashPlan.immediateFreeCash);
+              }}
+            >
+              Recalcular desde costos + deudas
+            </button>
             <label className="mt-3 block text-sm">
               Reserva (meses de burn) — política guardada
               <input

@@ -18,7 +18,7 @@ describe('User-configurable break-even (Local 311 as example dataset)', () => {
     expect(snap.breakEvenSales).toBe(LOCAL311_EXPECTED.breakEvenSales);
     expect(snap.daily.units).toBe(LOCAL311_EXPECTED.dailyUnits);
     expect(snap.daily.money).toBe(LOCAL311_EXPECTED.dailyMoney);
-    expect(snap.safetyMargin).toBe('5810000');
+    expect(snap.safetyMargin).toBe('5906112');
     expect(snap.inputsUsed.operatingDaysPerMonth).toBe(26);
     // Model has no breakEvenSales field — output only
     expect('breakEvenSales' in model).toBe(false);
@@ -44,10 +44,10 @@ describe('User-configurable break-even (Local 311 as example dataset)', () => {
         sortOrder: 10,
       },
     });
-    expect(Money.from(snapshot.totalFixedCosts, 'COP').gt(Money.from('15195000', 'COP'))).toBe(
+    expect(Money.from(snapshot.totalFixedCosts, 'COP').gt(Money.from('15146944', 'COP'))).toBe(
       true,
     );
-    expect(Money.from(snapshot.breakEvenSales, 'COP').gt(Money.from('30390000', 'COP'))).toBe(true);
+    expect(Money.from(snapshot.breakEvenSales, 'COP').gt(Money.from('30293888', 'COP'))).toBe(true);
   });
 
   it('target profit (user input) increases required sales (output)', () => {

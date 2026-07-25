@@ -3,7 +3,8 @@ import {
   type WorkspaceCashSnapshot,
 } from '@/lib/workspaceProfile';
 
-const STORAGE_KEY = 'fie.os.cashSnapshot.v1';
+/** Bumped when owner confirms payroll/CC linkage. */
+const STORAGE_KEY = 'fie.os.cashSnapshot.v2';
 
 export function emptyCashSnapshot(): WorkspaceCashSnapshot {
   return {

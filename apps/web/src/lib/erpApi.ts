@@ -1,8 +1,13 @@
 import type { SalesDashboardSnapshot } from '@fie/erp-integration';
+import type { HeraPayrollSnapshot } from '@/lib/heraPayroll';
 
 const DEFAULT_API =
   process.env.NEXT_PUBLIC_API_URL ??
   'https://niilaxdeetuzutycvdkz.supabase.co/functions/v1/fie-os-sales';
+
+const PAYROLL_API =
+  process.env.NEXT_PUBLIC_PAYROLL_API_URL ??
+  'https://niilaxdeetuzutycvdkz.supabase.co/functions/v1/fie-os-payroll';
 
 const ANON_KEY =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
@@ -92,4 +97,20 @@ export async function pingApi(apiBase = DEFAULT_API): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * One-way pull: Edge reads Hera public.employees (never mutates ERP).
+ * Empty module → empty:true (use SMMLV calculator until workers are registered in Hera).
+ */
+export async function syncHeraPayroll(apiBase = PAYROLL_API): Promise<HeraPayrollSnapshot> {
+  const res = await fetch(`${apiBase.replace(/\/$/, '')}/integrations/hera/payroll/sync`, {
+    method: 'POST',
+    headers: apiHeaders(),
+  });
+  const body = (await res.json()) as HeraPayrollSnapshot & { error?: string };
+  if (!res.ok) {
+    throw new Error(body.error || `Sync nómina Hera ${res.status}`);
+  }
+  return body;
 }

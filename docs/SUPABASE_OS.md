@@ -19,6 +19,15 @@ Base: `https://niilaxdeetuzutycvdkz.supabase.co/functions/v1/fie-os-sales`
 - `POST /integrations/hera/sync?scope=month|all` — copies trazabilidad → OS events
 - `POST /integrations/hera/events` — optional webhook
 
+### Nómina (workers → BEP)
+
+Base: `…/functions/v1/fie-os-payroll`
+
+- `GET /health`
+- `POST /integrations/hera/payroll/sync` — **read-only** `public.employees` → OS snapshot (+ events `EmployeeSynced`)
+- Web **Costos** → **Sincronizar nómina Hera**: si hay N trabajadores, suma costo empleador (SMMLV/provisiones) y actualiza la línea NOMINA / BEP
+- Si `employees` está vacío: el OS no inventa headcount; usa calculadora SMMLV hasta registrarlos en Hera
+
 ## Web
 
 Button **Actualizar ventas del mes** runs sync then shows day/month from money movements.
