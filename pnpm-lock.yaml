@@ -72,6 +72,9 @@ importers:
       '@fie/cashflow-engine':
         specifier: workspace:*
         version: link:../../packages/cashflow-engine
+      '@fie/debt-manager':
+        specifier: workspace:*
+        version: link:../../packages/debt-manager
       '@fie/erp-integration':
         specifier: workspace:*
         version: link:../../packages/erp-integration

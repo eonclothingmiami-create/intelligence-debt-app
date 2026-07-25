@@ -12,6 +12,7 @@
   "dependencies": {
     "@fie/break-even-engine": "workspace:*",
     "@fie/cashflow-engine": "workspace:*",
+    "@fie/debt-manager": "workspace:*",
     "@fie/erp-integration": "workspace:*",
     "@fie/financial-engine": "workspace:*",
     "@fie/liquidity-engine": "workspace:*",

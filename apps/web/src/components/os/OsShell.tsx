@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from 'react';
 import type { BreakEvenModel, BreakEvenSnapshot } from '@fie/break-even-engine';
 import type { SalesDashboardSnapshot } from '@fie/erp-integration';
 import type { MarketingChannel, MarketingPortfolioVsActual } from '@fie/shared';
+import { DebtsPanel } from '@/components/os/DebtsPanel';
 import {
   actionBusinessHealth,
   actionComputeBreakEven,
@@ -11,11 +12,17 @@ import {
   actionLoadDemo,
   actionMarketingPortfolio,
 } from '@/lib/actions';
+import {
+  createDemoDebtWorkspace,
+  debtDashboard,
+  optimizeExtraCash,
+  type DebtWorkspace,
+} from '@/lib/debtStore';
 import type { LiquidityView } from '@/lib/engines';
 import { fetchSalesDashboard, pingApi, postHeraSale } from '@/lib/erpApi';
 import { formatCop, formatNumber, formatPct } from '@/lib/format';
 
-type Tab = 'overview' | 'costs' | 'sales' | 'marketing' | 'decision';
+type Tab = 'overview' | 'costs' | 'sales' | 'debts' | 'marketing' | 'decision';
 
 type ChannelBudgetRow = {
   channelId: string;
@@ -27,6 +34,7 @@ type ChannelBudgetRow = {
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Resumen' },
   { id: 'sales', label: 'Ventas ERP' },
+  { id: 'debts', label: 'Deudas' },
   { id: 'costs', label: 'Costos' },
   { id: 'marketing', label: 'Publicidad' },
   { id: 'decision', label: 'Decisión' },
@@ -84,8 +92,14 @@ export function OsShell() {
   const [salesDash, setSalesDash] = useState<SalesDashboardSnapshot | null>(null);
   const [apiOnline, setApiOnline] = useState(false);
   const [simSaleAmount, setSimSaleAmount] = useState('250000');
+  const [debtWs, setDebtWs] = useState<DebtWorkspace>(() => createDemoDebtWorkspace());
 
   const fixedBurn = useMemo(() => breakEven?.totalFixedCosts ?? '0', [breakEven]);
+  const debtDash = useMemo(() => debtDashboard(debtWs), [debtWs]);
+  const debtOpt = useMemo(
+    () => optimizeExtraCash(debtWs, proposedExtra.trim() || '1200000'),
+    [debtWs, proposedExtra],
+  );
 
   function loadDemo() {
     setError(null);
@@ -263,10 +277,13 @@ export function OsShell() {
         });
         setLiquidity(liq);
 
+        const opt = optimizeExtraCash(debtWs, liq.maxSafeExtraDebtPayment);
+        const proposedForHealth =
+          proposedExtra.trim() || (opt.suggestedAmount !== '0' ? opt.suggestedAmount : undefined);
         const health = await actionBusinessHealth({
           breakEven,
           liquidity: liq,
-          proposedExtraDebtPayment: proposedExtra.trim() || undefined,
+          proposedExtraDebtPayment: proposedForHealth,
           futureInterestSaved: interestSaved,
           currency: model?.currency ?? 'COP',
           marketingFreedCapacity: mkt.freedCapacityAmount,
@@ -274,7 +291,7 @@ export function OsShell() {
           riskComponents: {
             liquidity: Number(liq.runwayMonths ?? 0) >= 2 ? 75 : 40,
             breakEven: Number(breakEven.safetyMarginRate ?? 0) > 0 ? 80 : 35,
-            debtCoverage: Number(mkt.freedCapacityAmount) >= 0 ? 70 : 45,
+            debtCoverage: Number(debtDash.totalBalance) > 0 ? 55 : 80,
             margin: Number(breakEven.contributionMarginRate) * 100,
             inventory: 60,
           },
@@ -287,7 +304,20 @@ export function OsShell() {
           },
           riskBands: { lowMin: 70, mediumMin: 45 },
         });
-        setRecommendation(health.recommendation);
+        if (!proposedExtra.trim() && opt.suggestedAmount !== '0') {
+          setProposedExtra(opt.suggestedAmount);
+        }
+        const enriched = {
+          ...health.recommendation,
+          rationale: [
+            ...health.recommendation.rationale,
+            ...opt.rationale,
+            opt.suggestedTargetObligationId
+              ? `Objetivo de abono sugerido por Debt Optimizer: ${opt.ranked.find((r) => r.obligationId === opt.suggestedTargetObligationId)?.label ?? opt.suggestedTargetObligationId} (${opt.suggestedAmount}).`
+              : 'Debt Optimizer: sin candidato de abono extra.',
+          ],
+        };
+        setRecommendation(enriched);
         setScore(health.score);
         setTab('decision');
       } catch (e) {
@@ -347,7 +377,7 @@ export function OsShell() {
 
       {tab === 'overview' && breakEven ? (
         <section className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <Metric
               title="Punto de equilibrio"
               value={formatCop(breakEven.breakEvenSales)}
@@ -375,6 +405,11 @@ export function OsShell() {
                   ? `Ticket prom. ${formatCop(salesDash.day.averageTicket)}`
                   : 'Conecta @fie/api'
               }
+            />
+            <Metric
+              title="Deuda total"
+              value={formatCop(debtDash.totalBalance)}
+              hint={`Interés mes ~${formatCop(debtDash.estimatedMonthlyInterest)} · ${debtDash.obligationCount} obl.`}
             />
           </div>
           <p className="text-xs text-muted">
@@ -449,6 +484,14 @@ export function OsShell() {
             ) : null}
           </div>
         </section>
+      ) : null}
+
+      {tab === 'debts' ? (
+        <DebtsPanel
+          workspace={debtWs}
+          onChange={setDebtWs}
+          extraCashHint={proposedExtra.trim() || debtOpt.suggestedAmount || '1200000'}
+        />
       ) : null}
 
       {tab === 'costs' && model ? (

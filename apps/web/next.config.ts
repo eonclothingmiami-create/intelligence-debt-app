@@ -19,6 +19,7 @@ const nextConfig: NextConfig = {
   transpilePackages: [
     '@fie/break-even-engine',
     '@fie/cashflow-engine',
+    '@fie/debt-manager',
     '@fie/erp-integration',
     '@fie/financial-engine',
     '@fie/liquidity-engine',
