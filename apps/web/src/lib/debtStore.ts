@@ -173,7 +173,8 @@ export function addObligation(
 }
 
 export function removeObligation(ws: DebtWorkspace, id: string): DebtWorkspace {
-  const { [id]: _removed, ...restLogs } = ws.logs;
+  const restLogs = { ...ws.logs };
+  delete restLogs[id];
   return {
     obligations: ws.obligations.filter((o) => o.id !== id),
     logs: restLogs,
