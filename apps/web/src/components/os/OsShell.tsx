@@ -70,6 +70,7 @@ export function OsShell() {
   const [alertRate, setAlertRate] = useState('0.10');
   const [interestSaved, setInterestSaved] = useState('120000');
   const [channelRows, setChannelRows] = useState<ChannelBudgetRow[]>(DEFAULT_ROWS);
+  const [newFixed, setNewFixed] = useState({ label: '', category: '', amount: '' });
 
   const fixedBurn = useMemo(() => breakEven?.totalFixedCosts ?? '0', [breakEven]);
 
@@ -101,6 +102,55 @@ export function OsShell() {
         setError(e instanceof Error ? e.message : 'Error en punto de equilibrio');
       }
     });
+  }
+
+  function updateFixedCost(
+    id: string,
+    patch: Partial<{ label: string; category: string; amount: string }>,
+  ) {
+    if (!model) return;
+    recomputeBreakEven({
+      ...model,
+      fixedCosts: model.fixedCosts.map((l) => (l.id === id ? { ...l, ...patch } : l)),
+    });
+  }
+
+  function removeFixedCost(id: string) {
+    if (!model) return;
+    const remaining = model.fixedCosts
+      .filter((l) => l.id !== id)
+      .map((l, idx) => ({ ...l, sortOrder: idx }));
+    recomputeBreakEven({ ...model, fixedCosts: remaining });
+  }
+
+  function addFixedCost() {
+    if (!model) return;
+    const label = newFixed.label.trim();
+    const category = newFixed.category.trim() || 'General';
+    const amount = newFixed.amount.trim() || '0';
+    if (!label) {
+      setError('Escribe un nombre para el costo fijo nuevo.');
+      return;
+    }
+    const id = `f_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+    const nextSort =
+      model.fixedCosts.reduce((max, l) => (l.sortOrder > max ? l.sortOrder : max), -1) + 1;
+    recomputeBreakEven({
+      ...model,
+      fixedCosts: [
+        ...model.fixedCosts,
+        {
+          id,
+          label,
+          category,
+          amount,
+          active: true,
+          sortOrder: nextSort,
+        },
+      ],
+    });
+    setNewFixed({ label: '', category: '', amount: '' });
+    setError(null);
   }
 
   function runDecisionStack() {
@@ -253,43 +303,101 @@ export function OsShell() {
       ) : null}
 
       {tab === 'costs' && model ? (
-        <section className="panel rounded-2xl p-4 md:p-6">
-          <h2 className="brand-mark text-2xl text-forest">Costos fijos (inputs)</h2>
-          <p className="mt-1 text-sm text-muted">
-            Editar un monto recalcula el BEP. La línea de publicidad fija es presupuesto de plan; el
-            gasto real vive en Publicidad por canal.
-          </p>
-          <ul className="mt-6 divide-y divide-[var(--line)]">
-            {model.fixedCosts.map((line) => (
-              <li
-                key={line.id}
-                className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div>
-                  <p className="font-medium">{line.label}</p>
-                  <p className="text-xs text-muted">
-                    {line.category}
-                    {line.kind ? ` · ${line.kind}` : ''}
-                  </p>
-                </div>
+        <section className="space-y-4">
+          <div className="panel rounded-2xl p-4 md:p-6">
+            <h2 className="brand-mark text-2xl text-forest">Costos fijos (inputs)</h2>
+            <p className="mt-1 text-sm text-muted">
+              Agrega o elimina líneas; el punto de equilibrio se recalcula solo. La publicidad fija
+              es presupuesto de plan; el gasto real vive en Publicidad por canal.
+            </p>
+            <ul className="mt-6 divide-y divide-[var(--line)]">
+              {model.fixedCosts.map((line) => (
+                <li
+                  key={line.id}
+                  className="grid gap-2 py-4 md:grid-cols-[1.2fr_1fr_0.9fr_auto] md:items-end"
+                >
+                  <label className="block text-xs text-muted">
+                    Nombre
+                    <input
+                      className="mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm text-ink"
+                      value={line.label}
+                      onChange={(e) => updateFixedCost(line.id, { label: e.target.value })}
+                    />
+                  </label>
+                  <label className="block text-xs text-muted">
+                    Categoría
+                    <input
+                      className="mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm text-ink"
+                      value={line.category}
+                      onChange={(e) => updateFixedCost(line.id, { category: e.target.value })}
+                    />
+                  </label>
+                  <label className="block text-xs text-muted">
+                    Monto
+                    <input
+                      className="metric mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm text-ink"
+                      inputMode="decimal"
+                      value={line.amount}
+                      onChange={(e) => updateFixedCost(line.id, { amount: e.target.value })}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => removeFixedCost(line.id)}
+                    className="rounded-full border border-danger/30 px-3 py-2 text-sm font-medium text-danger hover:bg-danger/10"
+                  >
+                    Eliminar
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {model.fixedCosts.length === 0 ? (
+              <p className="mt-4 text-sm text-muted">No hay costos fijos. Agrega al menos uno.</p>
+            ) : null}
+          </div>
+
+          <div className="panel rounded-2xl p-4 md:p-6">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted">
+              Nuevo costo fijo
+            </h3>
+            <div className="mt-4 grid gap-3 md:grid-cols-[1.2fr_1fr_0.9fr_auto] md:items-end">
+              <label className="block text-xs text-muted">
+                Nombre
                 <input
-                  className="metric w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 sm:w-44"
-                  inputMode="decimal"
-                  value={line.amount}
-                  onChange={(e) => {
-                    const amount = e.target.value;
-                    const next: BreakEvenModel = {
-                      ...model,
-                      fixedCosts: model.fixedCosts.map((l) =>
-                        l.id === line.id ? { ...l, amount } : l,
-                      ),
-                    };
-                    recomputeBreakEven(next);
-                  }}
+                  className="mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
+                  placeholder="Ej. Seguro local"
+                  value={newFixed.label}
+                  onChange={(e) => setNewFixed((s) => ({ ...s, label: e.target.value }))}
                 />
-              </li>
-            ))}
-          </ul>
+              </label>
+              <label className="block text-xs text-muted">
+                Categoría
+                <input
+                  className="mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
+                  placeholder="Ej. Local"
+                  value={newFixed.category}
+                  onChange={(e) => setNewFixed((s) => ({ ...s, category: e.target.value }))}
+                />
+              </label>
+              <label className="block text-xs text-muted">
+                Monto
+                <input
+                  className="metric mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
+                  inputMode="decimal"
+                  placeholder="0"
+                  value={newFixed.amount}
+                  onChange={(e) => setNewFixed((s) => ({ ...s, amount: e.target.value }))}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={addFixedCost}
+                className="rounded-full bg-forest px-4 py-2 text-sm font-semibold text-mist"
+              >
+                Agregar
+              </button>
+            </div>
+          </div>
         </section>
       ) : null}
 
