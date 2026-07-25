@@ -11,6 +11,8 @@ export type FinancialContextBoardInput = {
   debts?: Partial<FinancialContext['debts']> | null;
   marketing?: Partial<FinancialContext['marketing']> | null;
   costs?: Partial<FinancialContext['costs']> | null;
+  inventory?: Partial<FinancialContext['inventory']> | null;
+  scenarios?: Partial<FinancialContext['scenarios']> | null;
   alerts?: string[];
   notes?: string[];
 };
@@ -100,9 +102,23 @@ export function buildFinancialContext(input: FinancialContextBoardInput): Financ
   };
   if (!costs.fixedCostLines.length) missing.push('costs.fixedCostLines');
 
-  // Inventory / scenarios not yet wired in the board → explicit gaps
-  missing.push('inventory');
-  missing.push('scenarios');
+  const inventory = {
+    units: input.inventory?.units ?? null,
+    valueAtCost: input.inventory?.valueAtCost ?? null,
+    valueAtPrice: input.inventory?.valueAtPrice ?? null,
+    skuCount: input.inventory?.skuCount ?? null,
+    skusWithStock: input.inventory?.skusWithStock ?? null,
+    skusBelowMin: input.inventory?.skusBelowMin ?? null,
+    source: input.inventory?.source ?? 'unknown',
+  };
+  if (inventory.valueAtCost == null) missing.push('inventory');
+
+  const scenarios = {
+    immediateCapacity: input.scenarios?.immediateCapacity ?? null,
+    preferredScenarioId: input.scenarios?.preferredScenarioId ?? null,
+    evaluations: input.scenarios?.evaluations ?? [],
+  };
+  if (!scenarios.evaluations.length) missing.push('scenarios');
 
   return {
     generatedAt: new Date().toISOString(),
@@ -115,6 +131,8 @@ export function buildFinancialContext(input: FinancialContextBoardInput): Financ
     debts,
     marketing,
     costs,
+    inventory,
+    scenarios,
     missingFields: [...new Set(missing)],
     alerts: input.alerts ?? [],
     notes: [

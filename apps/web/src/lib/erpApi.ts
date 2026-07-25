@@ -9,6 +9,10 @@ const PAYROLL_API =
   process.env.NEXT_PUBLIC_PAYROLL_API_URL ??
   'https://niilaxdeetuzutycvdkz.supabase.co/functions/v1/fie-os-payroll';
 
+const INVENTORY_API =
+  process.env.NEXT_PUBLIC_INVENTORY_API_URL ??
+  'https://niilaxdeetuzutycvdkz.supabase.co/functions/v1/fie-os-inventory';
+
 const ANON_KEY =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5paWxheGRlZXR1enV0eWN2ZGt6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzNjc0NjIsImV4cCI6MjA4ODk0MzQ2Mn0.GI8E7vRzxi5NumN_f4T432Lx4BcmgGLZo81BR9h3h8c';
@@ -111,6 +115,45 @@ export async function syncHeraPayroll(apiBase = PAYROLL_API): Promise<HeraPayrol
   const body = (await res.json()) as HeraPayrollSnapshot & { error?: string };
   if (!res.ok) {
     throw new Error(body.error || `Sync nómina Hera ${res.status}`);
+  }
+  return body;
+}
+
+export type HeraInventorySnapshot = {
+  currency: string;
+  source: string;
+  skuCount: number;
+  skusWithStock: number;
+  skusBelowMin: number;
+  units: string;
+  valueAtCost: string;
+  valueAtPrice: string;
+  topByValueAtCost: Array<{
+    id: string;
+    ref: string;
+    name: string;
+    stock: number;
+    valueAtCost: string;
+  }>;
+  syncedAt: string;
+};
+
+export type HeraInventorySyncResult = {
+  ok: boolean;
+  empty: boolean;
+  message: string;
+  snapshot: HeraInventorySnapshot;
+};
+
+/** One-way: Edge reads products.stock × cost (never mutates ERP). */
+export async function syncHeraInventory(apiBase = INVENTORY_API): Promise<HeraInventorySyncResult> {
+  const res = await fetch(`${apiBase.replace(/\/$/, '')}/integrations/hera/inventory/sync`, {
+    method: 'POST',
+    headers: apiHeaders(),
+  });
+  const body = (await res.json()) as HeraInventorySyncResult & { error?: string };
+  if (!res.ok) {
+    throw new Error(body.error || `Sync inventario Hera ${res.status}`);
   }
   return body;
 }

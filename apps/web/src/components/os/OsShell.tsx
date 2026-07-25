@@ -8,17 +8,7 @@ import { AiRecommendPanel } from '@/components/os/AiRecommendPanel';
 import { DebtsPanel } from '@/components/os/DebtsPanel';
 import { PoliciesPanel } from '@/components/os/PoliciesPanel';
 import { PayrollColombiaPanel } from '@/components/os/PayrollColombiaPanel';
-import { applyHeraPayrollToModel } from '@/lib/heraPayroll';
-import {
-  applyMarginsToModel,
-  loadMarginWorkspace,
-  saveMarginWorkspace,
-  type ChannelMarginRow,
-  type MarginWorkspace,
-} from '@/lib/marginStore';
-import type { ColombiaPayrollBreakdown } from '@fie/break-even-engine';
-import { priceFromUtility, sumVariableCostsPerUnit } from '@fie/break-even-engine';
-import { Money } from '@fie/financial-engine';
+import { ScenariosPanel } from '@/components/os/ScenariosPanel';
 import {
   actionBusinessHealth,
   actionComputeBreakEven,
@@ -36,7 +26,8 @@ import type { LiquidityView } from '@/lib/engines';
 import { assembleBoardFinancialContext, requestAiRecommendation } from '@/lib/aiRecommend';
 import type { AiFinancialRecommendation, FinancialContext } from '@/lib/aiRecommend';
 import { getStoredOpenAiKey } from '@/lib/openaiKey';
-import { fetchSalesDashboard, pingApi, syncHeraSalesMonth } from '@/lib/erpApi';
+import { fetchSalesDashboard, pingApi, syncHeraInventory, syncHeraSalesMonth } from '@/lib/erpApi';
+import type { HeraInventorySnapshot } from '@/lib/erpApi';
 import { formatCop, formatNumber, formatPct } from '@/lib/format';
 import { isLiquidityPolicyComplete, loadLiquidityPolicy } from '@/lib/policyStore';
 import { loadCashSnapshot, saveCashSnapshot } from '@/lib/cashStore';
@@ -46,9 +37,37 @@ import {
   recompraAmount,
   type WorkspaceCashSnapshot,
 } from '@/lib/workspaceProfile';
+import { applyHeraPayrollToModel } from '@/lib/heraPayroll';
+import {
+  applyMarginsToModel,
+  loadMarginWorkspace,
+  saveMarginWorkspace,
+  type ChannelMarginRow,
+  type MarginWorkspace,
+} from '@/lib/marginStore';
+import {
+  evaluateScenarios,
+  loadScenarioWorkspace,
+  recommendScenario,
+  saveScenarioWorkspace,
+  type ScenarioRecommendation,
+  type ScenarioWorkspace,
+} from '@/lib/scenarioStore';
+import type { ColombiaPayrollBreakdown } from '@fie/break-even-engine';
+import { priceFromUtility, sumVariableCostsPerUnit } from '@fie/break-even-engine';
+import { Money } from '@fie/financial-engine';
 import type { LiquidityPolicy } from '@fie/shared';
 
-type Tab = 'overview' | 'costs' | 'sales' | 'debts' | 'marketing' | 'policies' | 'decision' | 'ai';
+type Tab =
+  | 'overview'
+  | 'costs'
+  | 'sales'
+  | 'debts'
+  | 'marketing'
+  | 'policies'
+  | 'scenarios'
+  | 'decision'
+  | 'ai';
 
 type ChannelBudgetRow = {
   channelId: string;
@@ -64,6 +83,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'costs', label: 'Costos' },
   { id: 'marketing', label: 'Publicidad' },
   { id: 'policies', label: 'Políticas' },
+  { id: 'scenarios', label: 'Escenarios' },
   { id: 'decision', label: 'Decisión' },
   { id: 'ai', label: 'CFO AI' },
 ];
@@ -123,7 +143,10 @@ export function OsShell() {
   const [newFixed, setNewFixed] = useState({ label: '', category: '', amount: '' });
   const [newVariable, setNewVariable] = useState({ label: '', category: '', amount: '' });
   const [margins, setMargins] = useState<MarginWorkspace>(() => loadMarginWorkspace());
+  const [scenarioWs, setScenarioWs] = useState<ScenarioWorkspace>(() => loadScenarioWorkspace());
+  const [scenarioRec, setScenarioRec] = useState<ScenarioRecommendation | null>(null);
   const [salesDash, setSalesDash] = useState<SalesDashboardSnapshot | null>(null);
+  const [inventorySnap, setInventorySnap] = useState<HeraInventorySnapshot | null>(null);
   const [apiOnline, setApiOnline] = useState(false);
   const [debtWs, setDebtWs] = useState<DebtWorkspace>(() => createDemoDebtWorkspace());
   const [aiRec, setAiRec] = useState<AiFinancialRecommendation | null>(null);
@@ -234,10 +257,21 @@ export function OsShell() {
     }
   }
 
+  async function refreshInventoryFromErp() {
+    try {
+      const result = await syncHeraInventory();
+      setInventorySnap(result.snapshot);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo sincronizar inventario Hera');
+    }
+  }
+
   useEffect(() => {
     void refreshSalesFromErp();
+    void refreshInventoryFromErp();
     const id = window.setInterval(() => {
       void refreshSalesFromErp();
+      void refreshInventoryFromErp();
     }, 60_000);
     return () => window.clearInterval(id);
   }, []);
@@ -346,6 +380,28 @@ export function OsShell() {
     const saved = saveMarginWorkspace(margins);
     setMargins(saved);
     recomputeWithMargins(model, saved);
+  }
+
+  function runScenarioEvaluation() {
+    const capacity = freeCash.trim() || cashPlan.immediateFreeCash || '0';
+    const evaluations = evaluateScenarios({
+      definitions: scenarioWs.definitions,
+      immediateCapacity: capacity,
+    });
+    const rec = recommendScenario({
+      evaluations,
+      immediateCapacity: capacity,
+      cashTight: Number(cashSnapshot.recompraShareOfCash || 0) >= 0.6,
+      safetyMarginRate: breakEven?.safetyMarginRate ?? null,
+      reserveIsHardFloor: liquidityPolicy.reserveIsHardFloor,
+    });
+    const next = saveScenarioWorkspace({
+      ...scenarioWs,
+      lastEvaluations: evaluations,
+      preferredScenarioId: rec?.recommendedId ?? scenarioWs.preferredScenarioId,
+    });
+    setScenarioWs(next);
+    setScenarioRec(rec);
   }
 
   function applyColombiaPayroll(breakdown: ColombiaPayrollBreakdown) {
@@ -505,6 +561,30 @@ export function OsShell() {
           amount: l.amount,
         })),
       },
+      inventory: inventorySnap
+        ? {
+            units: inventorySnap.units,
+            valueAtCost: inventorySnap.valueAtCost,
+            valueAtPrice: inventorySnap.valueAtPrice,
+            skuCount: inventorySnap.skuCount,
+            skusWithStock: inventorySnap.skusWithStock,
+            skusBelowMin: inventorySnap.skusBelowMin,
+            source: inventorySnap.source,
+          }
+        : null,
+      scenarios: {
+        immediateCapacity: freeCash.trim() || cashPlan.immediateFreeCash || null,
+        preferredScenarioId: scenarioWs.preferredScenarioId ?? null,
+        evaluations: scenarioWs.lastEvaluations.map((e) => ({
+          id: e.id,
+          label: e.label,
+          kind: e.kind,
+          extraDebtPayment: e.extraDebtPayment,
+          restockAllocation: e.restockAllocation,
+          capacityLeft: e.capacityLeft,
+          notes: e.notes,
+        })),
+      },
       alerts,
       notes: [
         'Motores del OS calcularon BEP, liquidez, risk score y debt optimizer.',
@@ -535,6 +615,10 @@ export function OsShell() {
           .map((c) => `${c.label} utilidad ${c.utilityOnPrice} mix ${c.mixWeight}`)
           .join('; ')}.`,
         breakEven ? `Margen contribución blend: ${breakEven.contributionMarginRate}` : '',
+        inventorySnap
+          ? `Inventario Hera: ${inventorySnap.units} uds · ${inventorySnap.valueAtCost} a costo · ${inventorySnap.skusWithStock}/${inventorySnap.skuCount} SKUs · bajo mínimo ${inventorySnap.skusBelowMin}.`
+          : 'Inventario aún no sincronizado desde Hera.',
+        scenarioRec ? `OS recomienda escenario: ${scenarioRec.summary}` : '',
       ].filter(Boolean),
     });
   }
@@ -602,6 +686,12 @@ export function OsShell() {
         const opt = optimizeExtraCash(debtWs, liq.maxSafeExtraDebtPayment);
         const proposedForHealth =
           proposedExtra.trim() || (opt.suggestedAmount !== '0' ? opt.suggestedAmount : undefined);
+        let inventoryScore = 25;
+        if (inventorySnap && Number(inventorySnap.units) > 0) {
+          const withStock = Math.max(1, inventorySnap.skusWithStock);
+          const lowRatio = inventorySnap.skusBelowMin / withStock;
+          inventoryScore = lowRatio > 0.4 ? 45 : lowRatio > 0.2 ? 60 : 80;
+        }
         const health = await actionBusinessHealth({
           breakEven,
           liquidity: liq,
@@ -615,7 +705,7 @@ export function OsShell() {
             breakEven: Number(breakEven.safetyMarginRate ?? 0) > 0 ? 80 : 35,
             debtCoverage: Number(debtDash.totalBalance) > 0 ? 55 : 80,
             margin: Number(breakEven.contributionMarginRate) * 100,
-            inventory: 60,
+            inventory: inventoryScore,
           },
           riskWeights: {
             liquidity: '0.25',
@@ -759,10 +849,28 @@ export function OsShell() {
               value={formatCop(debtDash.totalBalance)}
               hint={`Interés mes ~${formatCop(debtDash.estimatedMonthlyInterest)} · ${debtDash.obligationCount} obl.`}
             />
+            <Metric
+              title="Inventario (costo)"
+              value={formatCop(inventorySnap?.valueAtCost ?? null)}
+              hint={
+                inventorySnap
+                  ? `${formatNumber(inventorySnap.units)} uds · ${inventorySnap.skusWithStock} SKUs`
+                  : 'Sincroniza desde Hera'
+              }
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-full border border-[var(--line)] bg-white/70 px-4 py-2 text-sm font-medium"
+              onClick={() => void refreshInventoryFromErp()}
+            >
+              Actualizar inventario Hera
+            </button>
           </div>
           <p className="text-xs text-muted">
-            Fuente de ventas: Ventas Hera vía eventos (nunca tablas del ERP). Estado API:{' '}
-            {apiOnline ? 'en línea' : 'fuera de línea'}.
+            Fuente de ventas: Trazabilidad Hera vía eventos. Inventario: products.stock × cost (solo
+            lectura). API: {apiOnline ? 'en línea' : 'fuera de línea'}.
           </p>
         </section>
       ) : null}
@@ -1206,6 +1314,17 @@ export function OsShell() {
           buildContext={buildBoardContext}
           fixedBurn={fixedBurn}
           openaiConnected={openaiConnected}
+        />
+      ) : null}
+
+      {tab === 'scenarios' ? (
+        <ScenariosPanel
+          workspace={scenarioWs}
+          evaluations={scenarioWs.lastEvaluations}
+          recommendation={scenarioRec}
+          immediateCapacity={freeCash.trim() || cashPlan.immediateFreeCash || ''}
+          onChange={(ws) => setScenarioWs(saveScenarioWorkspace(ws))}
+          onRecommend={runScenarioEvaluation}
         />
       ) : null}
 

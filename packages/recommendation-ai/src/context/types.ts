@@ -80,6 +80,28 @@ export type FinancialContext = {
       amount: string;
     }>;
   };
+  inventory: {
+    units: string | null;
+    valueAtCost: string | null;
+    valueAtPrice: string | null;
+    skuCount: number | null;
+    skusWithStock: number | null;
+    skusBelowMin: number | null;
+    source: string;
+  };
+  scenarios: {
+    immediateCapacity: string | null;
+    preferredScenarioId: string | null;
+    evaluations: Array<{
+      id: string;
+      label: string;
+      kind: string;
+      extraDebtPayment: string;
+      restockAllocation: string;
+      capacityLeft: string;
+      notes: string[];
+    }>;
+  };
   /** Explicit gaps the CFO prompt must acknowledge — filled by buildFinancialContext. */
   missingFields: string[];
   alerts: string[];

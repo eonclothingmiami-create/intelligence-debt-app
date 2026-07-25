@@ -28,6 +28,14 @@ Base: `…/functions/v1/fie-os-payroll`
 - Web **Costos** → **Sincronizar nómina Hera**: si hay N trabajadores, suma costo empleador (SMMLV/provisiones) y actualiza la línea NOMINA / BEP
 - Si `employees` está vacío: el OS no inventa headcount; usa calculadora SMMLV hasta registrarlos en Hera
 
+### Inventario
+
+Base: `…/functions/v1/fie-os-inventory`
+
+- `POST /integrations/hera/inventory/sync` — **read-only** `public.products` (stock × cost/price) → OS snapshot
+- Web **Resumen** → métrica inventario + **Actualizar inventario Hera**
+- Alimenta CFO AI context y el componente de riesgo `inventory` (ya no placeholder fijo)
+
 ## Web
 
 Button **Actualizar ventas del mes** runs sync then shows day/month from money movements.
