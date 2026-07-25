@@ -3,6 +3,8 @@ import { Fraunces, Manrope } from 'next/font/google';
 import './globals.css';
 import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister';
 
+const basePath = (process.env.NEXT_PUBLIC_BASE_PATH || '').replace(/\/$/, '');
+
 const display = Fraunces({
   variable: '--font-display',
   subsets: ['latin'],
@@ -28,10 +30,10 @@ export const metadata: Metadata = {
     statusBarStyle: 'black-translucent',
     title: 'FIE OS',
   },
-  manifest: '/manifest.webmanifest',
+  manifest: `${basePath}/manifest.webmanifest`,
   icons: {
-    icon: [{ url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
-    apple: [{ url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
+    icon: [{ url: `${basePath}/icons/icon-192.png`, sizes: '192x192', type: 'image/png' }],
+    apple: [{ url: `${basePath}/icons/icon-192.png`, sizes: '192x192', type: 'image/png' }],
   },
 };
 
