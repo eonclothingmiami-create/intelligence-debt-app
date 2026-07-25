@@ -97,11 +97,22 @@ export function simulateDebtPaymentChange(
       `Advertencia: hay costo de prepago configurado${obligation.prepaymentPenaltyNote ? `: ${obligation.prepaymentPenaltyNote}` : ''}.`,
     );
   }
+  if (obligation.interestOnlyPayments) {
+    rationale.push(
+      'Modalidad solo intereses: el pago ordinario no abona a capital; el saldo solo baja con abonos extraordinarios (si están permitidos).',
+    );
+  }
 
   const atCurrent = projectPayoff(state.principal, rate, current, maxPeriods);
   const atProposed = allowed
     ? projectPayoff(state.principal, rate, proposed, maxPeriods)
     : { periods: null, interest: Money.zero(obligation.currency) };
+
+  if (obligation.interestOnlyPayments && atCurrent.periods === null) {
+    rationale.push(
+      'Con el pago planificado actual el capital no se cancela (solo intereses / cuota insuficiente para amortizar).',
+    );
+  }
 
   let interestSaved: string | null = null;
   if (allowed && atCurrent.interest && atProposed.interest) {

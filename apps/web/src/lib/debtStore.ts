@@ -119,6 +119,7 @@ export function addObligation(
     ratePercent?: string;
     ratePeriodicity: DebtObligation['ratePeriodicity'];
     allowsExtraPayments: boolean;
+    interestOnlyPayments?: boolean;
     fixedInstallmentAmount?: string;
     minimumPaymentAmount?: string;
     targetPaymentAmount?: string;
@@ -142,6 +143,7 @@ export function addObligation(
     ...(input.institution ? { institution: input.institution } : {}),
     currency: 'COP',
     allowsExtraPayments: input.allowsExtraPayments,
+    interestOnlyPayments: input.interestOnlyPayments ?? false,
     prepaymentPenalty: false,
     ...(input.ratePercent ? { ratePercent: input.ratePercent } : {}),
     ratePeriodicity: input.ratePeriodicity,
@@ -169,6 +171,29 @@ export function addObligation(
   return {
     obligations: [...ws.obligations, obligation],
     logs: { ...ws.logs, [id]: log },
+  };
+}
+
+export function patchObligation(
+  ws: DebtWorkspace,
+  id: string,
+  patch: Partial<
+    Pick<
+      DebtObligation,
+      | 'allowsExtraPayments'
+      | 'interestOnlyPayments'
+      | 'fixedInstallmentAmount'
+      | 'minimumPaymentAmount'
+      | 'targetPaymentAmount'
+      | 'ratePercent'
+      | 'label'
+      | 'purpose'
+    >
+  >,
+): DebtWorkspace {
+  return {
+    ...ws,
+    obligations: ws.obligations.map((o) => (o.id === id ? { ...o, ...patch } : o)),
   };
 }
 
@@ -206,11 +231,15 @@ export function simulateObligationPayment(
   const obligation = ws.obligations.find((o) => o.id === obligationId);
   if (!obligation) return null;
   const snap = snapshotObligation(obligation, ws.logs[obligationId] ?? []);
-  const current =
-    obligation.targetPaymentAmount ??
-    obligation.fixedInstallmentAmount ??
-    obligation.minimumPaymentAmount ??
-    proposedPayment;
+  const current = obligation.interestOnlyPayments
+    ? (obligation.fixedInstallmentAmount ??
+      obligation.minimumPaymentAmount ??
+      snap.estimatedMonthlyInterest ??
+      proposedPayment)
+    : (obligation.targetPaymentAmount ??
+      obligation.fixedInstallmentAmount ??
+      obligation.minimumPaymentAmount ??
+      proposedPayment);
   return simulateDebtPaymentChange({
     obligation,
     state: snap.state,

@@ -36,6 +36,11 @@ export type DebtObligation = {
   /** Optional link into @fie/financial-engine creditId for card math. */
   engineCreditId?: string;
   allowsExtraPayments: boolean;
+  /**
+   * When true, ordinary planned payment covers interest only — principal does not amortize
+   * unless an extra payment (abono a capital) is applied.
+   */
+  interestOnlyPayments?: boolean;
   prepaymentPenalty: boolean;
   prepaymentPenaltyNote?: string;
   ratePercent?: string; // e.g. "2.1085" monthly nominal — semantics in ratePeriodicity

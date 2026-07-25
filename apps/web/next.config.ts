@@ -23,6 +23,7 @@ const nextConfig: NextConfig = {
     '@fie/erp-integration',
     '@fie/financial-engine',
     '@fie/liquidity-engine',
+    '@fie/recommendation-ai',
     '@fie/recommendation-engine',
     '@fie/risk-engine',
     '@fie/shared',

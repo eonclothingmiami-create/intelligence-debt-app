@@ -44,6 +44,9 @@ importers:
       '@fie/erp-integration':
         specifier: workspace:*
         version: link:../../packages/erp-integration
+      '@fie/recommendation-ai':
+        specifier: workspace:*
+        version: link:../../packages/recommendation-ai
       '@hono/node-server':
         specifier: ^1.14.1
         version: 1.19.15(hono@4.12.32)
@@ -84,6 +87,9 @@ importers:
       '@fie/liquidity-engine':
         specifier: workspace:*
         version: link:../../packages/liquidity-engine
+      '@fie/recommendation-ai':
+        specifier: workspace:*
+        version: link:../../packages/recommendation-ai
       '@fie/recommendation-engine':
         specifier: workspace:*
         version: link:../../packages/recommendation-engine
@@ -275,6 +281,18 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^3.0.7
         version: 3.2.7(vitest@3.2.7(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.1)(yaml@2.9.0))
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.7
+        version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.1)(yaml@2.9.0)
+
+  packages/recommendation-ai:
+    devDependencies:
+      '@types/node':
+        specifier: '22'
+        version: 22.20.1
       typescript:
         specifier: ^5.8.2
         version: 5.9.3

@@ -16,6 +16,7 @@
     "@fie/erp-integration": "workspace:*",
     "@fie/financial-engine": "workspace:*",
     "@fie/liquidity-engine": "workspace:*",
+    "@fie/recommendation-ai": "workspace:*",
     "@fie/recommendation-engine": "workspace:*",
     "@fie/risk-engine": "workspace:*",
     "@fie/shared": "workspace:*",

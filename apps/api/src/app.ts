@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { OpenAIRecommendationProvider } from '@fie/recommendation-ai';
 import { OsEventStore, osStore } from './store.js';
 
 export function createApp(options?: { webhookSecret?: string; store?: OsEventStore }): Hono {
@@ -53,6 +54,33 @@ export function createApp(options?: { webhookSecret?: string; store?: OsEventSto
       count: all.length,
       events: all.slice(-limit),
     });
+  });
+
+  /**
+   * AI recommendation — OpenAI only via RecommendationProvider.
+   * Body: { context: FinancialContext } (facts pre-computed by OS).
+   */
+  app.post('/v1/recommendations/generate', async (c) => {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return c.json(
+        {
+          error: 'OPENAI_API_KEY_MISSING',
+          message: 'Set OPENAI_API_KEY in the API environment.',
+        },
+        503,
+      );
+    }
+    const body = await c.req.json();
+    if (!body?.context || typeof body.context !== 'object') {
+      return c.json({ error: 'CONTEXT_REQUIRED' }, 400);
+    }
+    const provider = new OpenAIRecommendationProvider({
+      apiKey,
+      ...(process.env.OPENAI_MODEL ? { model: process.env.OPENAI_MODEL } : {}),
+    });
+    const recommendation = await provider.generate({ context: body.context });
+    return c.json({ ok: true, provider: provider.name, recommendation });
   });
 
   return app;

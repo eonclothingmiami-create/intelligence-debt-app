@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from 'react';
 import type { BreakEvenModel, BreakEvenSnapshot } from '@fie/break-even-engine';
 import type { SalesDashboardSnapshot } from '@fie/erp-integration';
 import type { MarketingChannel, MarketingPortfolioVsActual } from '@fie/shared';
+import { AiRecommendPanel } from '@/components/os/AiRecommendPanel';
 import { DebtsPanel } from '@/components/os/DebtsPanel';
 import {
   actionBusinessHealth,
@@ -19,10 +20,13 @@ import {
   type DebtWorkspace,
 } from '@/lib/debtStore';
 import type { LiquidityView } from '@/lib/engines';
+import { assembleBoardFinancialContext, requestAiRecommendation } from '@/lib/aiRecommend';
+import type { AiFinancialRecommendation } from '@/lib/aiRecommend';
+import { getStoredOpenAiKey } from '@/lib/openaiKey';
 import { fetchSalesDashboard, pingApi, syncHeraSalesMonth } from '@/lib/erpApi';
 import { formatCop, formatNumber, formatPct } from '@/lib/format';
 
-type Tab = 'overview' | 'costs' | 'sales' | 'debts' | 'marketing' | 'decision';
+type Tab = 'overview' | 'costs' | 'sales' | 'debts' | 'marketing' | 'decision' | 'ai';
 
 type ChannelBudgetRow = {
   channelId: string;
@@ -38,6 +42,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'costs', label: 'Costos' },
   { id: 'marketing', label: 'Publicidad' },
   { id: 'decision', label: 'Decisión' },
+  { id: 'ai', label: 'CFO AI' },
 ];
 
 const DEFAULT_CHANNELS: MarketingChannel[] = [
@@ -92,6 +97,9 @@ export function OsShell() {
   const [salesDash, setSalesDash] = useState<SalesDashboardSnapshot | null>(null);
   const [apiOnline, setApiOnline] = useState(false);
   const [debtWs, setDebtWs] = useState<DebtWorkspace>(() => createDemoDebtWorkspace());
+  const [aiRec, setAiRec] = useState<AiFinancialRecommendation | null>(null);
+  const [aiPending, setAiPending] = useState(false);
+  const [openaiConnected, setOpenaiConnected] = useState(false);
 
   const fixedBurn = useMemo(() => breakEven?.totalFixedCosts ?? '0', [breakEven]);
   const debtDash = useMemo(() => debtDashboard(debtWs), [debtWs]);
@@ -304,6 +312,117 @@ export function OsShell() {
     });
   }
 
+  async function generateAiRecommendation() {
+    if (!getStoredOpenAiKey()) {
+      setError('Conecta tu API key de OpenAI en la pestaña CFO AI.');
+      setTab('ai');
+      return;
+    }
+    setError(null);
+    setAiPending(true);
+    try {
+      const alerts: string[] = [];
+      if (portfolio?.alert) {
+        alerts.push('Hay desviación de publicidad vs presupuesto según la política configurada.');
+      }
+
+      const context = assembleBoardFinancialContext({
+        currency: model?.currency ?? 'COP',
+        sales: salesDash
+          ? {
+              dayNet: salesDash.day.netSales,
+              dayCount: salesDash.day.salesCount,
+              monthNet: salesDash.month.netSales,
+              monthCount: salesDash.month.salesCount,
+              accumulatedNet: salesDash.accumulated.netSales,
+              accumulatedCount: salesDash.accumulated.salesCount,
+              source: 'tes_movimientos.venta_pos',
+            }
+          : null,
+        breakEven: breakEven
+          ? {
+              breakEvenSales: breakEven.breakEvenSales,
+              projectedSales: breakEven.projectedSales,
+              safetyMargin: breakEven.safetyMargin,
+              safetyMarginRate: breakEven.safetyMarginRate,
+              contributionMarginRate: breakEven.contributionMarginRate,
+              totalFixedCosts: breakEven.totalFixedCosts,
+            }
+          : null,
+        liquidity: {
+          cash,
+          monthlyFixedBurn: fixedBurn,
+          monthlyFreeCashFlow: freeCash,
+          reserveMonths,
+          runwayMonths: liquidity?.runwayMonths ?? null,
+          maxSafeExtraDebtPayment: liquidity?.maxSafeExtraDebtPayment ?? null,
+        },
+        health: score ? { score: score.score, riskLevel: score.riskLevel } : null,
+        engineRecommendation: recommendation
+          ? {
+              action: recommendation.action,
+              suggestedExtraDebtPayment: recommendation.suggestedExtraDebtPayment,
+              adjustedMaxSafeExtraDebtPayment: recommendation.adjustedMaxSafeExtraDebtPayment,
+              valid: recommendation.valid,
+              rationale: recommendation.rationale,
+            }
+          : null,
+        debts: {
+          totalBalance: debtDash.totalBalance,
+          estimatedMonthlyInterest: debtDash.estimatedMonthlyInterest,
+          monthlyInstallmentsDue: debtDash.monthlyInstallmentsDue,
+          obligationCount: debtDash.obligationCount,
+          allowsExtraPaymentCount: debtDash.allowsExtraPaymentCount,
+          optimizerSuggestedTarget: debtOpt.suggestedTargetObligationId,
+          optimizerSuggestedAmount: debtOpt.suggestedAmount,
+          optimizerRationale: debtOpt.rationale,
+          obligations: debtDash.snapshots.map((s) => ({
+            label: s.obligation.label,
+            kindLabel: s.obligation.kindLabel,
+            balance: s.balance,
+            estimatedMonthlyInterest: s.estimatedMonthlyInterest,
+            allowsExtraPayments: s.obligation.allowsExtraPayments,
+            interestOnlyPayments: Boolean(s.obligation.interestOnlyPayments),
+            ratePercent: s.obligation.ratePercent ?? null,
+            ratePeriodicity: s.obligation.ratePeriodicity,
+            purpose: s.obligation.purpose ?? null,
+          })),
+        },
+        marketing: {
+          totalBudget: portfolio?.totalBudgetAmount ?? null,
+          totalActual: portfolio?.totalActualAmount ?? null,
+          freedCapacityAmount: portfolio?.freedCapacityAmount ?? null,
+          overspendAmount: portfolio?.overspendAmount ?? null,
+          channels: channelRows.map((r) => ({
+            label: r.label,
+            budget: r.budget,
+            actual: r.actual,
+          })),
+        },
+        costs: {
+          fixedCostLines: (model?.fixedCosts ?? []).map((l) => ({
+            label: l.label,
+            category: l.category,
+            amount: l.amount,
+          })),
+        },
+        alerts,
+        notes: [
+          'Motores del OS calcularon BEP, liquidez, risk score y debt optimizer.',
+          'AI solo interpreta; no recalcula.',
+        ],
+      });
+
+      const rec = await requestAiRecommendation(context);
+      setAiRec(rec);
+      setTab('ai');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error generando recomendación AI');
+    } finally {
+      setAiPending(false);
+    }
+  }
+
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 md:px-6 md:py-8">
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -327,6 +446,13 @@ export function OsShell() {
             className="rounded-full bg-forest px-4 py-2 text-sm font-semibold text-mist"
           >
             Calcular decisión
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('ai')}
+            className="rounded-full border border-forest bg-moss px-4 py-2 text-sm font-semibold text-mist"
+          >
+            CFO AI
           </button>
         </div>
       </div>
@@ -762,11 +888,29 @@ export function OsShell() {
               </div>
             ) : (
               <p className="mt-4 text-sm text-muted">
-                Calcula para ver la recomendación holística.
+                Calcula para ver la recomendación holística de motores.
               </p>
             )}
+            <button
+              type="button"
+              onClick={() => setTab('ai')}
+              className="mt-5 rounded-full border border-forest px-4 py-2 text-sm font-semibold text-forest"
+            >
+              Ir a CFO AI (OpenAI)
+            </button>
           </div>
         </section>
+      ) : null}
+
+      {tab === 'ai' ? (
+        <AiRecommendPanel
+          recommendation={aiRec}
+          pending={aiPending}
+          connected={openaiConnected}
+          onConnectedChange={setOpenaiConnected}
+          onGenerate={() => void generateAiRecommendation()}
+          disabledGenerate={!breakEven}
+        />
       ) : null}
 
       {!breakEven && !pending ? <p className="text-sm text-muted">Cargando motores…</p> : null}

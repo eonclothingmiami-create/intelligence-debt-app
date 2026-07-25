@@ -76,10 +76,15 @@ export function buildDebtPortfolioDashboard(
       monthlyInterest = monthlyInterest.add(Money.from(snap.estimatedMonthlyInterest, currency));
     }
     const cuota =
-      snap.state.fixedInstallmentAmount ??
-      snap.obligation.fixedInstallmentAmount ??
-      snap.obligation.minimumPaymentAmount ??
-      snap.obligation.targetPaymentAmount;
+      snap.obligation.interestOnlyPayments && snap.estimatedMonthlyInterest
+        ? (snap.state.fixedInstallmentAmount ??
+          snap.obligation.fixedInstallmentAmount ??
+          snap.obligation.minimumPaymentAmount ??
+          snap.estimatedMonthlyInterest)
+        : (snap.state.fixedInstallmentAmount ??
+          snap.obligation.fixedInstallmentAmount ??
+          snap.obligation.minimumPaymentAmount ??
+          snap.obligation.targetPaymentAmount);
     if (cuota) {
       installments = installments.add(Money.from(cuota, currency));
     }

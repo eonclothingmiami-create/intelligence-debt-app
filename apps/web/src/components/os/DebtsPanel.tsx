@@ -8,6 +8,7 @@ import {
   createDemoDebtWorkspace,
   debtDashboard,
   optimizeExtraCash,
+  patchObligation,
   recordExtraPayment,
   removeObligation,
   simulateObligationPayment,
@@ -34,6 +35,7 @@ export function DebtsPanel({ workspace, onChange, extraCashHint }: Props) {
     ratePercent: string;
     ratePeriodicity: 'daily' | 'monthly' | 'annual' | 'none';
     allowsExtraPayments: boolean;
+    interestOnlyPayments: boolean;
     fixedInstallmentAmount: string;
     purpose: string;
   }>({
@@ -44,6 +46,7 @@ export function DebtsPanel({ workspace, onChange, extraCashHint }: Props) {
     ratePercent: '',
     ratePeriodicity: 'monthly',
     allowsExtraPayments: true,
+    interestOnlyPayments: false,
     fixedInstallmentAmount: '',
     purpose: '',
   });
@@ -102,11 +105,15 @@ export function DebtsPanel({ workspace, onChange, extraCashHint }: Props) {
                   className={`w-full text-left ${selected?.obligation.id === snap.obligation.id ? 'opacity-100' : 'opacity-80'}`}
                   onClick={() => {
                     setSelectedId(snap.obligation.id);
-                    const base =
-                      snap.obligation.targetPaymentAmount ??
-                      snap.obligation.fixedInstallmentAmount ??
-                      snap.obligation.minimumPaymentAmount ??
-                      '0';
+                    const base = snap.obligation.interestOnlyPayments
+                      ? (snap.obligation.fixedInstallmentAmount ??
+                        snap.obligation.minimumPaymentAmount ??
+                        snap.estimatedMonthlyInterest ??
+                        '0')
+                      : (snap.obligation.targetPaymentAmount ??
+                        snap.obligation.fixedInstallmentAmount ??
+                        snap.obligation.minimumPaymentAmount ??
+                        '0');
                     setSliderPay(base);
                   }}
                 >
@@ -115,6 +122,7 @@ export function DebtsPanel({ workspace, onChange, extraCashHint }: Props) {
                     {snap.obligation.kindLabel}
                     {snap.obligation.institution ? ` · ${snap.obligation.institution}` : ''}
                     {snap.obligation.purpose ? ` · ${snap.obligation.purpose}` : ''}
+                    {snap.obligation.interestOnlyPayments ? ' · solo intereses' : ''}
                   </p>
                   <p className="metric mt-1 text-sm">
                     {formatCop(snap.balance)}
@@ -123,16 +131,32 @@ export function DebtsPanel({ workspace, onChange, extraCashHint }: Props) {
                       : ' · sin interés'}
                   </p>
                 </button>
-                <button
-                  type="button"
-                  className="mt-2 text-xs font-medium text-danger"
-                  onClick={() => {
-                    onChange(removeObligation(workspace, snap.obligation.id));
-                    if (selectedId === snap.obligation.id) setSelectedId(null);
-                  }}
-                >
-                  Eliminar
-                </button>
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <label className="flex items-center gap-2 text-xs text-muted">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(snap.obligation.interestOnlyPayments)}
+                      onChange={(e) =>
+                        onChange(
+                          patchObligation(workspace, snap.obligation.id, {
+                            interestOnlyPayments: e.target.checked,
+                          }),
+                        )
+                      }
+                    />
+                    Solo pago intereses (no capital)
+                  </label>
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-danger"
+                    onClick={() => {
+                      onChange(removeObligation(workspace, snap.obligation.id));
+                      if (selectedId === snap.obligation.id) setSelectedId(null);
+                    }}
+                  >
+                    Eliminar
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
@@ -148,6 +172,9 @@ export function DebtsPanel({ workspace, onChange, extraCashHint }: Props) {
               <p className="text-sm text-muted">
                 Abonos extra: {selected.obligation.allowsExtraPayments ? 'sí' : 'no'} · Tasa:{' '}
                 {selected.obligation.ratePercent ?? '0'}% {selected.obligation.ratePeriodicity}
+                {selected.obligation.interestOnlyPayments
+                  ? ' · modalidad: solo intereses (capital no baja con la cuota)'
+                  : ''}
               </p>
               <label className="block text-sm">
                 Pago propuesto (slider)
@@ -290,6 +317,14 @@ export function DebtsPanel({ workspace, onChange, extraCashHint }: Props) {
             />
             Permite abonos extraordinarios
           </label>
+          <label className="mt-2 flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.interestOnlyPayments}
+              onChange={(e) => setForm((f) => ({ ...f, interestOnlyPayments: e.target.checked }))}
+            />
+            Solo pago intereses (no abono a capital)
+          </label>
           <button
             type="button"
             className="mt-4 rounded-full bg-forest px-4 py-2 text-sm font-semibold text-mist"
@@ -306,6 +341,7 @@ export function DebtsPanel({ workspace, onChange, extraCashHint }: Props) {
                     ? 'none'
                     : form.ratePeriodicity,
                 allowsExtraPayments: form.allowsExtraPayments,
+                interestOnlyPayments: form.interestOnlyPayments,
                 ...(form.fixedInstallmentAmount.trim()
                   ? { fixedInstallmentAmount: form.fixedInstallmentAmount.trim() }
                   : {}),
@@ -320,6 +356,7 @@ export function DebtsPanel({ workspace, onChange, extraCashHint }: Props) {
                 ratePercent: '',
                 ratePeriodicity: 'monthly',
                 allowsExtraPayments: true,
+                interestOnlyPayments: false,
                 fixedInstallmentAmount: '',
                 purpose: '',
               });
