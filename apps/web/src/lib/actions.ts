@@ -1,5 +1,3 @@
-'use server';
-
 import type { BreakEvenModel } from '@fie/break-even-engine';
 import type {
   MarketingActualEntry,
@@ -15,6 +13,8 @@ import {
   runMarketingPortfolio,
   type LiquidityFormInput,
 } from './engines';
+
+/** Client-safe wrappers (static GitHub Pages export — no server actions). */
 
 export async function actionLoadDemo() {
   const model = loadDemoModel();

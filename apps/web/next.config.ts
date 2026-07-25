@@ -1,6 +1,21 @@
 import type { NextConfig } from 'next';
 
+/**
+ * GitHub Pages project site: set NEXT_PUBLIC_BASE_PATH=/intelligence-debt-app
+ * Local/dev: leave unset.
+ */
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH?.replace(/\/$/, '') || '';
+
 const nextConfig: NextConfig = {
+  output: 'export',
+  trailingSlash: true,
+  images: { unoptimized: true },
+  ...(basePath
+    ? {
+        basePath,
+        assetPrefix: basePath,
+      }
+    : {}),
   transpilePackages: [
     '@fie/break-even-engine',
     '@fie/cashflow-engine',
@@ -10,7 +25,6 @@ const nextConfig: NextConfig = {
     '@fie/risk-engine',
     '@fie/shared',
   ],
-  // Engines ship ESM from dist; keep package exports as source of truth.
   experimental: {
     optimizePackageImports: ['@fie/break-even-engine', '@fie/cashflow-engine'],
   },

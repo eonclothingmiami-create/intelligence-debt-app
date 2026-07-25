@@ -41,6 +41,20 @@ npx pnpm@9.15.9 --filter @fie/web dev
 
 ## Web app (MVP)
 
+Local:
+
+```bash
+npx pnpm@9.15.9 --filter @fie/web dev
+```
+
 - Landing: http://localhost:3000
 - Tablero OS: http://localhost:3000/app
 - PWA instalable desde el navegador del celular
+
+### Deploy (GitHub Pages — sin Vercel)
+
+1. Repo → **Settings → Pages → Source: GitHub Actions**
+2. Push a `main` (workflow `Deploy GitHub Pages`)
+3. URL pública:
+
+`https://eonclothingmiami-create.github.io/intelligence-debt-app/`

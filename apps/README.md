@@ -11,8 +11,12 @@
 npx pnpm@9.15.9 --filter @fie/web dev
 ```
 
-Abre [http://localhost:3000](http://localhost:3000) (landing) y [http://localhost:3000/app](http://localhost:3000/app) (tablero).
+- Local: [http://localhost:3000](http://localhost:3000) · [http://localhost:3000/app](http://localhost:3000/app)
+- Producción (GitHub Pages): [https://eonclothingmiami-create.github.io/intelligence-debt-app/](https://eonclothingmiami-create.github.io/intelligence-debt-app/)
 
-Motores conectados: break-even, liquidez, marketing plan-vs-actual, risk score, recommendation.
+### Activar Pages en GitHub
 
-PWA: `manifest.webmanifest` + `sw.js` — en el celular, “Instalar app / Agregar a inicio”.
+1. **Settings → Pages → Build and deployment → Source: GitHub Actions**
+2. Merge/push a `main` (corre `.github/workflows/deploy-pages.yml`)
+
+Motores en el navegador (export estático). PWA: Instalar / Agregar a inicio en el celular.
