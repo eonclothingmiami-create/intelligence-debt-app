@@ -188,6 +188,7 @@ export function patchObligation(
       | 'ratePercent'
       | 'label'
       | 'purpose'
+      | 'paymentDueDay'
     >
   >,
 ): DebtWorkspace {
@@ -210,13 +211,33 @@ export function recordExtraPayment(
   ws: DebtWorkspace,
   obligationId: string,
   amount: string,
+  occurredOn?: string,
 ): DebtWorkspace {
   const log = ws.logs[obligationId] ?? [];
   const next = appendEvent(log, {
     eventId: createDebtEventId('extra'),
     type: 'ExtraPaymentApplied',
     obligationId,
-    occurredOn: new Date().toISOString().slice(0, 10),
+    occurredOn: occurredOn ?? new Date().toISOString().slice(0, 10),
+    sequence: nextSequence(log),
+    payload: { amount },
+  });
+  return { ...ws, logs: { ...ws.logs, [obligationId]: next } };
+}
+
+/** Cuota / mínimo (ordinary payment) — used by daily closing. */
+export function recordOrdinaryPayment(
+  ws: DebtWorkspace,
+  obligationId: string,
+  amount: string,
+  occurredOn?: string,
+): DebtWorkspace {
+  const log = ws.logs[obligationId] ?? [];
+  const next = appendEvent(log, {
+    eventId: createDebtEventId('ordinary'),
+    type: 'OrdinaryPaymentApplied',
+    obligationId,
+    occurredOn: occurredOn ?? new Date().toISOString().slice(0, 10),
     sequence: nextSequence(log),
     payload: { amount },
   });

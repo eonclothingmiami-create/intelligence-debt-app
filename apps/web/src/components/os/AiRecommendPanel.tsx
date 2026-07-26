@@ -16,6 +16,7 @@ type Props = {
   onConnectedChange: (connected: boolean) => void;
   onGenerate: () => void;
   disabledGenerate?: boolean;
+  disabledReason?: string;
 };
 
 /**
@@ -29,6 +30,7 @@ export function AiRecommendPanel({
   onConnectedChange,
   onGenerate,
   disabledGenerate,
+  disabledReason,
 }: Props) {
   const [draftKey, setDraftKey] = useState('');
   const [showKey, setShowKey] = useState(false);
@@ -159,7 +161,7 @@ export function AiRecommendPanel({
             ) : null}
             {disabledGenerate ? (
               <p className="mt-3 text-xs text-muted">
-                Carga el tablero (demo / BEP) antes de generar.
+                {disabledReason ?? 'Carga el tablero (demo / BEP) antes de generar.'}
               </p>
             ) : null}
           </div>

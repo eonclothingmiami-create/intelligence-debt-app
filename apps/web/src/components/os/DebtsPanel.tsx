@@ -133,6 +133,34 @@ export function DebtsPanel({ workspace, onChange, extraCashHint }: Props) {
                 </button>
                 <div className="mt-2 flex flex-wrap items-center gap-3">
                   <label className="flex items-center gap-2 text-xs text-muted">
+                    Día pago
+                    <input
+                      className="w-14 rounded border border-[var(--line)] bg-white px-2 py-1 text-ink"
+                      inputMode="numeric"
+                      placeholder="5"
+                      value={snap.obligation.paymentDueDay ?? ''}
+                      onChange={(e) => {
+                        const raw = e.target.value.trim();
+                        if (!raw) {
+                          onChange(
+                            patchObligation(workspace, snap.obligation.id, {
+                              paymentDueDay: undefined,
+                            }),
+                          );
+                          return;
+                        }
+                        const n = Number(raw);
+                        if (Number.isFinite(n) && n >= 1 && n <= 31) {
+                          onChange(
+                            patchObligation(workspace, snap.obligation.id, {
+                              paymentDueDay: n,
+                            }),
+                          );
+                        }
+                      }}
+                    />
+                  </label>
+                  <label className="flex items-center gap-2 text-xs text-muted">
                     <input
                       type="checkbox"
                       checked={Boolean(snap.obligation.interestOnlyPayments)}

@@ -5,6 +5,8 @@ import type { BreakEvenModel, BreakEvenSnapshot } from '@fie/break-even-engine';
 import type { SalesDashboardSnapshot } from '@fie/erp-integration';
 import type { MarketingChannel, MarketingPortfolioVsActual } from '@fie/shared';
 import { AiRecommendPanel } from '@/components/os/AiRecommendPanel';
+import { ClosingHistoryPanel } from '@/components/os/ClosingHistoryPanel';
+import { DailyClosingGate } from '@/components/os/DailyClosingGate';
 import { DebtsPanel } from '@/components/os/DebtsPanel';
 import { PoliciesPanel } from '@/components/os/PoliciesPanel';
 import { PayrollColombiaPanel } from '@/components/os/PayrollColombiaPanel';
@@ -53,6 +55,8 @@ import {
   type ScenarioRecommendation,
   type ScenarioWorkspace,
 } from '@/lib/scenarioStore';
+import { loadClosingBoardFacts, type ClosingBoardFacts } from '@/lib/closingFacts';
+import type { ClosingStatus } from '@/lib/closingApi';
 import type { ColombiaPayrollBreakdown } from '@fie/break-even-engine';
 import { priceFromUtility, sumVariableCostsPerUnit } from '@fie/break-even-engine';
 import { Money } from '@fie/financial-engine';
@@ -66,6 +70,7 @@ type Tab =
   | 'marketing'
   | 'policies'
   | 'scenarios'
+  | 'closings'
   | 'decision'
   | 'ai';
 
@@ -84,6 +89,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'marketing', label: 'Publicidad' },
   { id: 'policies', label: 'Políticas' },
   { id: 'scenarios', label: 'Escenarios' },
+  { id: 'closings', label: 'Movimientos' },
   { id: 'decision', label: 'Decisión' },
   { id: 'ai', label: 'CFO AI' },
 ];
@@ -140,7 +146,7 @@ export function OsShell() {
   const [alertRate, setAlertRate] = useState('0.10');
   const [interestSaved, setInterestSaved] = useState('120000');
   const [channelRows, setChannelRows] = useState<ChannelBudgetRow[]>(DEFAULT_ROWS);
-  const [newFixed, setNewFixed] = useState({ label: '', category: '', amount: '' });
+  const [newFixed, setNewFixed] = useState({ label: '', category: '', amount: '', dueDay: '' });
   const [newVariable, setNewVariable] = useState({ label: '', category: '', amount: '' });
   const [margins, setMargins] = useState<MarginWorkspace>(() => loadMarginWorkspace());
   const [scenarioWs, setScenarioWs] = useState<ScenarioWorkspace>(() => loadScenarioWorkspace());
@@ -152,6 +158,9 @@ export function OsShell() {
   const [aiRec, setAiRec] = useState<AiFinancialRecommendation | null>(null);
   const [aiPending, setAiPending] = useState(false);
   const [openaiConnected, setOpenaiConnected] = useState(false);
+  const [closingStatus, setClosingStatus] = useState<ClosingStatus | null>(null);
+  const [closingFacts, setClosingFacts] = useState<ClosingBoardFacts | null>(null);
+  const [closingGateActive, setClosingGateActive] = useState(false);
 
   const reserveMonths = liquidityPolicy.reserveMonths;
   const minCashFloor = liquidityPolicy.minCashFloor ?? '';
@@ -172,6 +181,26 @@ export function OsShell() {
       setFreeCash(cashPlan.immediateFreeCash);
     }
   }, [cashPlan.immediateFreeCash]);
+
+  async function refreshClosingFacts(currentModel: BreakEvenModel | null = model): Promise<{
+    status: ClosingStatus;
+    facts: ClosingBoardFacts;
+  } | null> {
+    try {
+      const { status, facts } = await loadClosingBoardFacts(currentModel, debtWs);
+      setClosingStatus(status);
+      setClosingFacts(facts);
+      setClosingGateActive(status.pendingDays.length > 0);
+      return { status, facts };
+    } catch {
+      /* closing API offline — do not invent status */
+      return null;
+    }
+  }
+
+  useEffect(() => {
+    void refreshClosingFacts();
+  }, []);
 
   function persistCashField(nextCash: string) {
     setCash(nextCash);
@@ -200,6 +229,7 @@ export function OsShell() {
         setModel(next);
         setBreakEven(await actionComputeBreakEven(next));
         setTab('overview');
+        void refreshClosingFacts(next);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Error cargando demo');
       }
@@ -278,7 +308,7 @@ export function OsShell() {
 
   function updateFixedCost(
     id: string,
-    patch: Partial<{ label: string; category: string; amount: string }>,
+    patch: Partial<{ label: string; category: string; amount: string; dueDay: number | undefined }>,
   ) {
     if (!model) return;
     recomputeBreakEven({
@@ -307,6 +337,7 @@ export function OsShell() {
     const id = `f_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
     const nextSort =
       model.fixedCosts.reduce((max, l) => (l.sortOrder > max ? l.sortOrder : max), -1) + 1;
+    const dueDayNum = Number(newFixed.dueDay);
     recomputeBreakEven({
       ...model,
       fixedCosts: [
@@ -318,10 +349,13 @@ export function OsShell() {
           amount,
           active: true,
           sortOrder: nextSort,
+          ...(Number.isFinite(dueDayNum) && dueDayNum >= 1 && dueDayNum <= 31
+            ? { dueDay: dueDayNum }
+            : {}),
         },
       ],
     });
-    setNewFixed({ label: '', category: '', amount: '' });
+    setNewFixed({ label: '', category: '', amount: '', dueDay: '' });
     setError(null);
   }
 
@@ -473,7 +507,7 @@ export function OsShell() {
     setError(null);
   }
 
-  function buildBoardContext(): FinancialContext {
+  function buildBoardContext(overrideClosing?: ClosingBoardFacts | null): FinancialContext {
     const alerts: string[] = [];
     if (portfolio?.alert) {
       alerts.push('Hay desviación de publicidad vs presupuesto según la política configurada.');
@@ -481,6 +515,7 @@ export function OsShell() {
     if (!isLiquidityPolicyComplete(liquidityPolicy)) {
       alerts.push('Falta política de liquidez (reserva en meses).');
     }
+    const closing = overrideClosing ?? closingFacts;
     return assembleBoardFinancialContext({
       currency: model?.currency ?? 'COP',
       sales: salesDash
@@ -585,6 +620,16 @@ export function OsShell() {
           notes: e.notes,
         })),
       },
+      dailyClosing: closing ?? {
+        seriesStart: closingStatus?.seriesStart ?? null,
+        today: closingStatus?.today ?? null,
+        pendingDays: closingStatus?.pendingDays ?? [],
+        lastClosed: closingStatus?.lastClosed ?? null,
+        canGenerateRecommendations: closingStatus?.canGenerateRecommendations ?? null,
+        recentClosings: [],
+        fixedCostsThisMonth: [],
+        commitments: [],
+      },
       alerts,
       notes: [
         'Motores del OS calcularon BEP, liquidez, risk score y debt optimizer.',
@@ -619,6 +664,11 @@ export function OsShell() {
           ? `Inventario Hera: ${inventorySnap.units} uds · ${inventorySnap.valueAtCost} a costo · ${inventorySnap.skusWithStock}/${inventorySnap.skuCount} SKUs · bajo mínimo ${inventorySnap.skusBelowMin}.`
           : 'Inventario aún no sincronizado desde Hera.',
         scenarioRec ? `OS recomienda escenario: ${scenarioRec.summary}` : '',
+        closingStatus?.pendingDays.length
+          ? `Registro de movimientos pendientes: ${closingStatus.pendingDays.join(', ')}.`
+          : closingStatus
+            ? 'Registro diario de movimientos al día — historial disponible para AI.'
+            : 'Estado de registro de movimientos no disponible.',
       ].filter(Boolean),
     });
   }
@@ -744,10 +794,25 @@ export function OsShell() {
       setTab('ai');
       return;
     }
+    if (closingStatus && closingStatus.pendingDays.length > 0) {
+      setError(
+        `Hay ${closingStatus.pendingDays.length} día(s) sin actualizar. Completa el registro de movimientos (o marca «sin movimientos») antes de generar recomendaciones.`,
+      );
+      setClosingGateActive(true);
+      return;
+    }
     setError(null);
     setAiPending(true);
     try {
-      const rec = await requestAiRecommendation(buildBoardContext());
+      const refreshed = await refreshClosingFacts();
+      if (refreshed && refreshed.status.pendingDays.length > 0) {
+        setError(
+          `Hay ${refreshed.status.pendingDays.length} día(s) sin actualizar. Completa el registro de movimientos antes de generar recomendaciones.`,
+        );
+        setClosingGateActive(true);
+        return;
+      }
+      const rec = await requestAiRecommendation(buildBoardContext(refreshed?.facts ?? null));
       setAiRec(rec);
       setTab('ai');
     } catch (e) {
@@ -757,8 +822,28 @@ export function OsShell() {
     }
   }
 
+  const hasPendingClosings = Boolean(closingStatus && closingStatus.pendingDays.length > 0);
+
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 md:px-6 md:py-8">
+      {closingGateActive && hasPendingClosings ? (
+        <DailyClosingGate
+          model={model}
+          debtWs={debtWs}
+          onDebtWsChange={setDebtWs}
+          onCashChange={(nextCash) => {
+            persistCashField(nextCash);
+          }}
+          onStatusChange={(s) => {
+            setClosingStatus(s);
+            setClosingGateActive(s.pendingDays.length > 0);
+          }}
+          onClosed={() => {
+            setClosingGateActive(false);
+            void refreshClosingFacts();
+          }}
+        />
+      ) : null}
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="brand-mark text-3xl text-forest md:text-4xl">Tablero operativo</h1>
@@ -932,16 +1017,16 @@ export function OsShell() {
       {tab === 'costs' && model ? (
         <section className="space-y-4">
           <div className="panel rounded-2xl p-4 md:p-6">
-            <h2 className="brand-mark text-2xl text-forest">Costos fijos (inputs)</h2>
+            <h2 className="brand-mark text-2xl text-forest">Costos fijos (presupuesto)</h2>
             <p className="mt-1 text-sm text-muted">
-              Agrega o elimina líneas; el punto de equilibrio se recalcula solo. La publicidad fija
-              es presupuesto de plan; el gasto real vive en Publicidad por canal.
+              Presupuesto mensual para BEP y proyecciones. Define el día de pago; el registro diario
+              solo confirma si se pagó. No vuelvas a digitar el monto cada mes.
             </p>
             <ul className="mt-6 divide-y divide-[var(--line)]">
               {model.fixedCosts.map((line) => (
                 <li
                   key={line.id}
-                  className="grid gap-2 py-4 md:grid-cols-[1.2fr_1fr_0.9fr_auto] md:items-end"
+                  className="grid gap-2 py-4 md:grid-cols-[1.1fr_0.9fr_0.8fr_0.55fr_auto] md:items-end"
                 >
                   <label className="block text-xs text-muted">
                     Nombre
@@ -960,12 +1045,32 @@ export function OsShell() {
                     />
                   </label>
                   <label className="block text-xs text-muted">
-                    Monto
+                    Monto presupuesto
                     <input
                       className="metric mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm text-ink"
                       inputMode="decimal"
                       value={line.amount}
                       onChange={(e) => updateFixedCost(line.id, { amount: e.target.value })}
+                    />
+                  </label>
+                  <label className="block text-xs text-muted">
+                    Día pago
+                    <input
+                      className="mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm text-ink"
+                      inputMode="numeric"
+                      placeholder="1–31"
+                      value={line.dueDay ?? ''}
+                      onChange={(e) => {
+                        const raw = e.target.value.trim();
+                        if (!raw) {
+                          updateFixedCost(line.id, { dueDay: undefined });
+                          return;
+                        }
+                        const n = Number(raw);
+                        if (Number.isFinite(n) && n >= 1 && n <= 31) {
+                          updateFixedCost(line.id, { dueDay: n });
+                        }
+                      }}
                     />
                   </label>
                   <button
@@ -987,7 +1092,7 @@ export function OsShell() {
             <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted">
               Nuevo costo fijo
             </h3>
-            <div className="mt-4 grid gap-3 md:grid-cols-[1.2fr_1fr_0.9fr_auto] md:items-end">
+            <div className="mt-4 grid gap-3 md:grid-cols-[1.1fr_0.9fr_0.8fr_0.55fr_auto] md:items-end">
               <label className="block text-xs text-muted">
                 Nombre
                 <input
@@ -1007,13 +1112,23 @@ export function OsShell() {
                 />
               </label>
               <label className="block text-xs text-muted">
-                Monto
+                Monto presupuesto
                 <input
                   className="metric mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
                   inputMode="decimal"
                   placeholder="0"
                   value={newFixed.amount}
                   onChange={(e) => setNewFixed((s) => ({ ...s, amount: e.target.value }))}
+                />
+              </label>
+              <label className="block text-xs text-muted">
+                Día pago
+                <input
+                  className="mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
+                  inputMode="numeric"
+                  placeholder="5"
+                  value={newFixed.dueDay}
+                  onChange={(e) => setNewFixed((s) => ({ ...s, dueDay: e.target.value }))}
                 />
               </label>
               <button
@@ -1486,9 +1601,16 @@ export function OsShell() {
           connected={openaiConnected}
           onConnectedChange={setOpenaiConnected}
           onGenerate={() => void generateAiRecommendation()}
-          disabledGenerate={!breakEven}
+          disabledGenerate={!breakEven || hasPendingClosings}
+          disabledReason={
+            hasPendingClosings
+              ? `Actualiza ${closingStatus?.pendingDays.length ?? 0} día(s) pendiente(s) (movimientos o «sin movimientos») antes de generar.`
+              : undefined
+          }
         />
       ) : null}
+
+      {tab === 'closings' ? <ClosingHistoryPanel status={closingStatus} /> : null}
 
       {!breakEven && !pending ? <p className="text-sm text-muted">Cargando motores…</p> : null}
     </main>

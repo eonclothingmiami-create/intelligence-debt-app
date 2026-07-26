@@ -15,6 +15,8 @@ export type ConfigurableLineItem = {
   /** Display order; user can reorder. */
   sortOrder: number;
   notes?: string;
+  /** Day of month (1–31) when budgeted fixed cost is expected to be paid. */
+  dueDay?: number;
 };
 
 /** User-defined product — no assumed industry. */

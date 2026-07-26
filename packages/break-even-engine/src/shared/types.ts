@@ -14,6 +14,11 @@ export type LineItem = {
   sortOrder: number;
   kind?: string;
   notes?: string;
+  /**
+   * Day of month (1–31) when this budgeted fixed cost is expected to be paid.
+   * User-owned schedule — used for daily confirmation, not invented by the engine.
+   */
+  dueDay?: number;
 };
 
 export type Product = {

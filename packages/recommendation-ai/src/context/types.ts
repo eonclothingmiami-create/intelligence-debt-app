@@ -80,6 +80,43 @@ export type FinancialContext = {
       amount: string;
     }>;
   };
+  dailyClosing: {
+    seriesStart: string | null;
+    today: string | null;
+    pendingDays: string[];
+    lastClosed: string | null;
+    canGenerateRecommendations: boolean | null;
+    recentClosings: Array<{
+      businessDay: string;
+      notes: string | null;
+      lineCount: number;
+      expensesTotal: string;
+      fixedCostPaymentsTotal: string;
+      obligationPaymentsTotal: string;
+      extraordinaryNet: string;
+    }>;
+    fixedCostsThisMonth: Array<{
+      fixedCostId: string;
+      label: string;
+      planAmount: string;
+      paid: boolean;
+      totalPaid: string | null;
+      basePaid: string | null;
+      lateInterestPaid: string | null;
+      otherAdjustmentPaid: string | null;
+      paidOn: string | null;
+    }>;
+    commitments: Array<{
+      key: string;
+      kind: string;
+      label: string;
+      scheduledAmount: string;
+      status: string;
+      paidAmount: string | null;
+      dueDay: number;
+      deferredTo: string | null;
+    }>;
+  };
   inventory: {
     units: string | null;
     valueAtCost: string | null;

@@ -13,6 +13,7 @@ export type FinancialContextBoardInput = {
   costs?: Partial<FinancialContext['costs']> | null;
   inventory?: Partial<FinancialContext['inventory']> | null;
   scenarios?: Partial<FinancialContext['scenarios']> | null;
+  dailyClosing?: Partial<FinancialContext['dailyClosing']> | null;
   alerts?: string[];
   notes?: string[];
 };
@@ -102,6 +103,21 @@ export function buildFinancialContext(input: FinancialContextBoardInput): Financ
   };
   if (!costs.fixedCostLines.length) missing.push('costs.fixedCostLines');
 
+  const dailyClosing = {
+    seriesStart: input.dailyClosing?.seriesStart ?? null,
+    today: input.dailyClosing?.today ?? null,
+    pendingDays: input.dailyClosing?.pendingDays ?? [],
+    lastClosed: input.dailyClosing?.lastClosed ?? null,
+    canGenerateRecommendations: input.dailyClosing?.canGenerateRecommendations ?? null,
+    recentClosings: input.dailyClosing?.recentClosings ?? [],
+    fixedCostsThisMonth: input.dailyClosing?.fixedCostsThisMonth ?? [],
+    commitments: input.dailyClosing?.commitments ?? [],
+  };
+  if (dailyClosing.pendingDays.length > 0) {
+    missing.push('dailyClosing.pendingDays');
+  }
+  if (!dailyClosing.recentClosings.length) missing.push('dailyClosing.recentClosings');
+
   const inventory = {
     units: input.inventory?.units ?? null,
     valueAtCost: input.inventory?.valueAtCost ?? null,
@@ -131,6 +147,7 @@ export function buildFinancialContext(input: FinancialContextBoardInput): Financ
     debts,
     marketing,
     costs,
+    dailyClosing,
     inventory,
     scenarios,
     missingFields: [...new Set(missing)],
