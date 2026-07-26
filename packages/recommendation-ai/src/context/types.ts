@@ -30,6 +30,23 @@ export type FinancialContext = {
     runwayMonths: string | null;
     maxSafeExtraDebtPayment: string | null;
   };
+  /**
+   * Six owner capacity questions — precomputed by @fie/financial-orchestrator.
+   * AI must not invent these amounts.
+   */
+  capacity: {
+    canSpendToday: string | null;
+    canInvest: string | null;
+    canPayDebtExtra: string | null;
+    canRestock: string | null;
+    canWithdrawProfit: string | null;
+    canSpendAds: string | null;
+    immediateFreeCash: string | null;
+    recompraEarmark: string | null;
+    nextQuincena: string | null;
+    creditCardInstallment: string | null;
+    gaps: string[];
+  };
   health: {
     score: number | null;
     riskLevel: string | null;

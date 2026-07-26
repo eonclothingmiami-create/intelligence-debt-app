@@ -96,6 +96,19 @@ export function PoliciesPanel({
         </p>
 
         <label className="mt-5 block text-sm">
+          Moneda de display
+          <input
+            className="metric mt-1 w-full rounded-lg border border-[var(--line)] bg-mist/40 px-3 py-2"
+            value="COP"
+            readOnly
+          />
+        </label>
+        <p className="mt-1 text-xs text-muted">
+          Viene del modelo BEP / workspace. El Centro de Configuración completo (más campos) es Fase
+          2.
+        </p>
+
+        <label className="mt-3 block text-sm">
           Reserva mínima (meses de burn fijo)
           <input
             className="metric mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2"

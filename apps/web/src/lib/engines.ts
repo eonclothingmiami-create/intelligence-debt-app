@@ -5,6 +5,7 @@ import {
   type BreakEvenModel,
   type BreakEvenSnapshot,
 } from '@fie/break-even-engine';
+import type { BoardSnapshot } from '@fie/financial-orchestrator';
 import { computeLiquidity } from '@fie/liquidity-engine';
 import { recommendBusinessAction } from '@fie/recommendation-engine';
 import { computeBusinessScore } from '@fie/risk-engine';
@@ -16,6 +17,7 @@ import type {
   MarketingPortfolioVsActual,
   MarketingVariancePolicy,
 } from '@fie/shared';
+import { runOsBoard, type BuildBoardInputArgs } from '@/lib/board';
 
 export type LiquidityFormInput = {
   currency: string;
@@ -112,4 +114,9 @@ export function runHealth(input: {
   });
 
   return { recommendation, score };
+}
+
+/** Full decision stack via @fie/financial-orchestrator (no duplicate sequencing in UI). */
+export function runBoardStack(input: BuildBoardInputArgs): BoardSnapshot {
+  return runOsBoard(input);
 }

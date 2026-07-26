@@ -6,6 +6,7 @@ export type FinancialContextBoardInput = {
   sales?: Partial<FinancialContext['sales']> | null;
   breakEven?: Partial<FinancialContext['breakEven']> | null;
   liquidity?: Partial<FinancialContext['liquidity']> | null;
+  capacity?: Partial<FinancialContext['capacity']> | null;
   health?: Partial<FinancialContext['health']> | null;
   engineRecommendation?: Partial<FinancialContext['engineRecommendation']> | null;
   debts?: Partial<FinancialContext['debts']> | null;
@@ -60,6 +61,25 @@ export function buildFinancialContext(input: FinancialContextBoardInput): Financ
   if (liquidity.cash == null) missing.push('liquidity.cash');
   if (liquidity.runwayMonths == null) missing.push('liquidity.runwayMonths');
   if (liquidity.maxSafeExtraDebtPayment == null) missing.push('liquidity.maxSafeExtraDebtPayment');
+
+  const capacity = {
+    canSpendToday: input.capacity?.canSpendToday ?? null,
+    canInvest: input.capacity?.canInvest ?? null,
+    canPayDebtExtra: input.capacity?.canPayDebtExtra ?? null,
+    canRestock: input.capacity?.canRestock ?? null,
+    canWithdrawProfit: input.capacity?.canWithdrawProfit ?? null,
+    canSpendAds: input.capacity?.canSpendAds ?? null,
+    immediateFreeCash: input.capacity?.immediateFreeCash ?? null,
+    recompraEarmark: input.capacity?.recompraEarmark ?? null,
+    nextQuincena: input.capacity?.nextQuincena ?? null,
+    creditCardInstallment: input.capacity?.creditCardInstallment ?? null,
+    gaps: input.capacity?.gaps ?? [],
+  };
+  if (capacity.immediateFreeCash == null) missing.push('capacity.immediateFreeCash');
+  if (capacity.canPayDebtExtra == null) missing.push('capacity.canPayDebtExtra');
+  for (const g of capacity.gaps) {
+    missing.push(`capacity.gap.${g}`);
+  }
 
   const health = {
     score: input.health?.score ?? null,
@@ -142,6 +162,7 @@ export function buildFinancialContext(input: FinancialContextBoardInput): Financ
     sales,
     breakEven,
     liquidity,
+    capacity,
     health,
     engineRecommendation,
     debts,
@@ -156,6 +177,7 @@ export function buildFinancialContext(input: FinancialContextBoardInput): Financ
       ...(input.notes ?? []),
       'OpenAI must not invent missing fields listed in missingFields.',
       'All monetary figures are pre-computed by Financial OS engines.',
+      'capacity.* answers the six owner questions; do not recalculate them.',
     ],
   };
 }

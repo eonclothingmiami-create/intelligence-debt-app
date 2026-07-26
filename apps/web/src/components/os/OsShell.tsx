@@ -5,6 +5,7 @@ import type { BreakEvenModel, BreakEvenSnapshot } from '@fie/break-even-engine';
 import type { SalesDashboardSnapshot } from '@fie/erp-integration';
 import type { MarketingChannel, MarketingPortfolioVsActual } from '@fie/shared';
 import { AiRecommendPanel } from '@/components/os/AiRecommendPanel';
+import { CapacityPanel } from '@/components/os/CapacityPanel';
 import { ClosingHistoryPanel } from '@/components/os/ClosingHistoryPanel';
 import { DailyClosingGate } from '@/components/os/DailyClosingGate';
 import { DebtsPanel } from '@/components/os/DebtsPanel';
@@ -12,11 +13,10 @@ import { PoliciesPanel } from '@/components/os/PoliciesPanel';
 import { PayrollColombiaPanel } from '@/components/os/PayrollColombiaPanel';
 import { ScenariosPanel } from '@/components/os/ScenariosPanel';
 import {
-  actionBusinessHealth,
   actionComputeBreakEven,
-  actionComputeLiquidity,
   actionLoadDemo,
   actionMarketingPortfolio,
+  actionRunBoard,
 } from '@/lib/actions';
 import {
   createDemoDebtWorkspace,
@@ -27,6 +27,7 @@ import {
 import type { LiquidityView } from '@/lib/engines';
 import { assembleBoardFinancialContext, requestAiRecommendation } from '@/lib/aiRecommend';
 import type { AiFinancialRecommendation, FinancialContext } from '@/lib/aiRecommend';
+import { deriveOsCapacity } from '@/lib/board';
 import { getStoredOpenAiKey } from '@/lib/openaiKey';
 import { fetchSalesDashboard, pingApi, syncHeraInventory, syncHeraSalesMonth } from '@/lib/erpApi';
 import type { HeraInventorySnapshot } from '@/lib/erpApi';
@@ -71,6 +72,7 @@ type Tab =
   | 'policies'
   | 'scenarios'
   | 'closings'
+  | 'capacidad'
   | 'decision'
   | 'ai';
 
@@ -90,6 +92,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'policies', label: 'Políticas' },
   { id: 'scenarios', label: 'Escenarios' },
   { id: 'closings', label: 'Movimientos' },
+  { id: 'capacidad', label: 'Capacidad' },
   { id: 'decision', label: 'Decisión' },
   { id: 'ai', label: 'CFO AI' },
 ];
@@ -176,6 +179,32 @@ export function OsShell() {
     [cashSnapshot, cash, model, debtWs],
   );
 
+  const capacityLive = useMemo(
+    () =>
+      deriveOsCapacity({
+        cash: { ...cashSnapshot, cashOnHand: cash || cashSnapshot.cashOnHand },
+        policy: liquidityPolicy,
+        currency: model?.currency ?? 'COP',
+        model,
+        debts: debtWs,
+        monthlyFixedBurn: breakEven?.totalFixedCosts ?? '0',
+        proposedExtraDebtPayment: proposedExtra.trim() || '0',
+        marketingFreedCapacity: portfolio?.freedCapacityAmount,
+        marketingOverspend: portfolio?.overspendAmount,
+      }),
+    [
+      cashSnapshot,
+      cash,
+      liquidityPolicy,
+      model,
+      debtWs,
+      breakEven?.totalFixedCosts,
+      proposedExtra,
+      portfolio?.freedCapacityAmount,
+      portfolio?.overspendAmount,
+    ],
+  );
+
   useEffect(() => {
     if (cashPlan.immediateFreeCash != null) {
       setFreeCash(cashPlan.immediateFreeCash);
@@ -205,6 +234,11 @@ export function OsShell() {
   function persistCashField(nextCash: string) {
     setCash(nextCash);
     const next = saveCashSnapshot({ ...cashSnapshot, cashOnHand: nextCash });
+    setCashSnapshot(next);
+  }
+
+  function persistRecompraShare(share: string) {
+    const next = saveCashSnapshot({ ...cashSnapshot, recompraShareOfCash: share });
     setCashSnapshot(next);
   }
 
@@ -544,8 +578,22 @@ export function OsShell() {
         monthlyFixedBurn: fixedBurn,
         monthlyFreeCashFlow: freeCash,
         reserveMonths: reserveMonths || null,
-        runwayMonths: liquidity?.runwayMonths ?? null,
-        maxSafeExtraDebtPayment: liquidity?.maxSafeExtraDebtPayment ?? null,
+        runwayMonths: liquidity?.runwayMonths ?? capacityLive.runwayMonths ?? null,
+        maxSafeExtraDebtPayment:
+          liquidity?.maxSafeExtraDebtPayment ?? capacityLive.canPayDebtExtra ?? null,
+      },
+      capacity: {
+        canSpendToday: capacityLive.canSpendToday,
+        canInvest: capacityLive.canInvest,
+        canPayDebtExtra: capacityLive.canPayDebtExtra,
+        canRestock: capacityLive.canRestock,
+        canWithdrawProfit: capacityLive.canWithdrawProfit,
+        canSpendAds: capacityLive.canSpendAds,
+        immediateFreeCash: capacityLive.immediateFreeCash,
+        recompraEarmark: capacityLive.recompraEarmark,
+        nextQuincena: capacityLive.nextQuincena,
+        creditCardInstallment: capacityLive.creditCardInstallment,
+        gaps: capacityLive.gaps,
       },
       health: score ? { score: score.score, riskLevel: score.riskLevel } : null,
       engineRecommendation: recommendation
@@ -682,14 +730,14 @@ export function OsShell() {
     }
     if (!cash.trim()) {
       setError('Indica la caja disponible hoy.');
-      setTab('decision');
+      setTab('capacidad');
       return;
     }
-    if (!freeCash.trim()) {
+    if (!freeCash.trim() && capacityLive.immediateFreeCash == null) {
       setError(
-        'Falta capacidad inmediata. Espera a que carguen nómina/cuota o pulsa «Recalcular desde costos + deudas».',
+        'Falta capacidad inmediata. Completa nómina en costos y cuota TC en deudas, o revisa Capacidad.',
       );
-      setTab('decision');
+      setTab('capacidad');
       return;
     }
     setError(null);
@@ -721,37 +769,26 @@ export function OsShell() {
         });
         setPortfolio(mkt);
 
-        const proposed = proposedExtra.trim() || '0';
-        const liq = await actionComputeLiquidity({
-          currency: model?.currency ?? 'COP',
-          cash,
-          monthlyFixedBurn: fixedBurn,
-          monthlyFreeCashFlow: freeCash,
-          proposedExtraDebtPayment: proposed,
-          reserveMonths,
-          minCashFloor: minCashFloor || undefined,
-        });
-        setLiquidity(liq);
-
-        const opt = optimizeExtraCash(debtWs, liq.maxSafeExtraDebtPayment);
-        const proposedForHealth =
-          proposedExtra.trim() || (opt.suggestedAmount !== '0' ? opt.suggestedAmount : undefined);
         let inventoryScore = 25;
         if (inventorySnap && Number(inventorySnap.units) > 0) {
           const withStock = Math.max(1, inventorySnap.skusWithStock);
           const lowRatio = inventorySnap.skusBelowMin / withStock;
           inventoryScore = lowRatio > 0.4 ? 45 : lowRatio > 0.2 ? 60 : 80;
         }
-        const health = await actionBusinessHealth({
-          breakEven,
-          liquidity: liq,
-          proposedExtraDebtPayment: proposedForHealth,
-          futureInterestSaved: interestSaved,
+
+        const board = await actionRunBoard({
+          cash: { ...cashSnapshot, cashOnHand: cash },
+          policy: liquidityPolicy,
           currency: model?.currency ?? 'COP',
+          model,
+          debts: debtWs,
+          monthlyFixedBurn: fixedBurn,
+          proposedExtraDebtPayment: proposedExtra.trim() || undefined,
+          futureInterestSaved: interestSaved,
           marketingFreedCapacity: mkt.freedCapacityAmount,
           marketingOverspend: mkt.overspendAmount,
           riskComponents: {
-            liquidity: Number(liq.runwayMonths ?? 0) >= 2 ? 75 : 40,
+            liquidity: Number(capacityLive.runwayMonths ?? 0) >= 2 ? 75 : 40,
             breakEven: Number(breakEven.safetyMarginRate ?? 0) > 0 ? 80 : 35,
             debtCoverage: Number(debtDash.totalBalance) > 0 ? 55 : 80,
             margin: Number(breakEven.contributionMarginRate) * 100,
@@ -766,21 +803,42 @@ export function OsShell() {
           },
           riskBands: { lowMin: 70, mediumMin: 45 },
         });
+
+        if (board.liquidity) {
+          setLiquidity(board.liquidity);
+        }
+        if (board.breakEven) {
+          setBreakEven(board.breakEven);
+        }
+
+        const opt =
+          board.debtOptimizer ??
+          optimizeExtraCash(debtWs, board.liquidity?.maxSafeExtraDebtPayment ?? '0');
         if (!proposedExtra.trim() && opt.suggestedAmount !== '0') {
           setProposedExtra(opt.suggestedAmount);
         }
-        const enriched = {
-          ...health.recommendation,
-          rationale: [
-            ...health.recommendation.rationale,
-            ...opt.rationale,
-            opt.suggestedTargetObligationId
-              ? `Objetivo de abono sugerido por Debt Optimizer: ${opt.ranked.find((r) => r.obligationId === opt.suggestedTargetObligationId)?.label ?? opt.suggestedTargetObligationId} (${opt.suggestedAmount}).`
-              : 'Debt Optimizer: sin candidato de abono extra.',
-          ],
-        };
-        setRecommendation(enriched);
-        setScore(health.score);
+
+        if (board.capacity.immediateFreeCash != null) {
+          setFreeCash(board.capacity.immediateFreeCash);
+        }
+
+        if (board.recommendation) {
+          const enriched = {
+            ...board.recommendation,
+            rationale: [
+              ...board.recommendation.rationale,
+              ...opt.rationale,
+              opt.suggestedTargetObligationId
+                ? `Objetivo de abono sugerido por Debt Optimizer: ${opt.ranked.find((r) => r.obligationId === opt.suggestedTargetObligationId)?.label ?? opt.suggestedTargetObligationId} (${opt.suggestedAmount}).`
+                : 'Debt Optimizer: sin candidato de abono extra.',
+              ...board.alertsLite.map((a) => `Orquestador: ${a}`),
+            ],
+          };
+          setRecommendation(enriched);
+        }
+        if (board.score) {
+          setScore(board.score);
+        }
         setTab('decision');
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Error en decisión');
@@ -1440,6 +1498,27 @@ export function OsShell() {
           immediateCapacity={freeCash.trim() || cashPlan.immediateFreeCash || ''}
           onChange={(ws) => setScenarioWs(saveScenarioWorkspace(ws))}
           onRecommend={runScenarioEvaluation}
+        />
+      ) : null}
+
+      {tab === 'capacidad' ? (
+        <CapacityPanel
+          capacity={capacityLive}
+          currency={model?.currency ?? 'COP'}
+          cash={cash}
+          recompraShare={cashSnapshot.recompraShareOfCash}
+          reserveMonths={reserveMonths}
+          minCashFloor={minCashFloor}
+          policyComplete={isLiquidityPolicyComplete(liquidityPolicy)}
+          hasPendingClosings={hasPendingClosings}
+          pendingClosingCount={closingStatus?.pendingDays.length ?? 0}
+          onCashChange={persistCashField}
+          onRecompraShareChange={persistRecompraShare}
+          onUseInDecision={() => {
+            runDecisionStack();
+          }}
+          onGenerateAi={() => void generateAiRecommendation()}
+          aiPending={aiPending}
         />
       ) : null}
 

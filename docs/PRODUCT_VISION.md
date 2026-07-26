@@ -73,12 +73,14 @@ El OS **no** modifica ventas del ERP. Solo las consume. Ver [ERP_INTEGRATION.md]
 ```text
 Ventas + Gastos + Deudas + Caja + Ads + BEP (reales)
         ↓
-   Motores financieros (en paralelo / composición)
+   @fie/financial-orchestrator (valida → capacidad → motores)
         ↓
-   Recomendación justificada + impacto esperado
+   Capacidad Financiera (6 preguntas) + recomendación + impacto
         ↓
-   Dashboard + explicación
+   Dashboard / Decisión / CFO AI
 ```
+
+Detalle de Capacidad + orquestador: [CAPACITY.md](./CAPACITY.md).
 
 El dashboard **no** es el producto; es la superficie. El producto es la capacidad de responder:
 
@@ -183,6 +185,7 @@ Financial Data Model      (eventos de dominio + políticas de workspace)
         │
         ▼
 Financial Engines
+ ├── Financial Orchestrator   @fie/financial-orchestrator (composición + capacidad)
  ├── Cash Flow Engine         @fie/cashflow-engine
  ├── Break-even Engine        @fie/break-even-engine
  ├── Liquidity Engine         @fie/liquidity-engine
@@ -200,6 +203,8 @@ Financial Engines
         ▼
 Dashboard + explicación     @fie/web (+ API)
 ```
+
+Roadmap explícito (post Fase 1 Capacidad): Centro de Configuración completo, Alertas, Calendario, Objetivos, KPIs, Supuestos, Reportes, Versiones de costos, Auditoría global, Historial de recomendaciones. Ver [CAPACITY.md](./CAPACITY.md).
 
 ---
 

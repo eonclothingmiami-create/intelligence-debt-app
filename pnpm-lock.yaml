@@ -84,6 +84,9 @@ importers:
       '@fie/financial-engine':
         specifier: workspace:*
         version: link:../../packages/financial-engine
+      '@fie/financial-orchestrator':
+        specifier: workspace:*
+        version: link:../../packages/financial-orchestrator
       '@fie/liquidity-engine':
         specifier: workspace:*
         version: link:../../packages/liquidity-engine
@@ -230,6 +233,40 @@ importers:
       decimal.js:
         specifier: ^10.5.0
         version: 10.6.0
+    devDependencies:
+      '@types/node':
+        specifier: '22'
+        version: 22.20.1
+      '@vitest/coverage-v8':
+        specifier: ^3.0.7
+        version: 3.2.7(vitest@3.2.7(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.1)(yaml@2.9.0))
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.7
+        version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.1)(yaml@2.9.0)
+
+  packages/financial-orchestrator:
+    dependencies:
+      '@fie/break-even-engine':
+        specifier: workspace:*
+        version: link:../break-even-engine
+      '@fie/debt-manager':
+        specifier: workspace:*
+        version: link:../debt-manager
+      '@fie/financial-engine':
+        specifier: workspace:*
+        version: link:../financial-engine
+      '@fie/liquidity-engine':
+        specifier: workspace:*
+        version: link:../liquidity-engine
+      '@fie/recommendation-engine':
+        specifier: workspace:*
+        version: link:../recommendation-engine
+      '@fie/risk-engine':
+        specifier: workspace:*
+        version: link:../risk-engine
     devDependencies:
       '@types/node':
         specifier: '22'

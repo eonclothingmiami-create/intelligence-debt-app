@@ -5,8 +5,10 @@ import type {
   MarketingChannel,
   MarketingVariancePolicy,
 } from '@fie/shared';
+import type { BuildBoardInputArgs } from './board';
 import {
   loadDemoModel,
+  runBoardStack,
   runBreakEven,
   runHealth,
   runLiquidity,
@@ -44,4 +46,9 @@ export async function actionMarketingPortfolio(input: {
 
 export async function actionBusinessHealth(input: Parameters<typeof runHealth>[0]) {
   return runHealth(input);
+}
+
+/** Orchestrated board: capacity → BEP → liquidity → debt → recommend + score. */
+export async function actionRunBoard(input: BuildBoardInputArgs) {
+  return runBoardStack(input);
 }

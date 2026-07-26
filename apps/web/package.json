@@ -15,6 +15,7 @@
     "@fie/debt-manager": "workspace:*",
     "@fie/erp-integration": "workspace:*",
     "@fie/financial-engine": "workspace:*",
+    "@fie/financial-orchestrator": "workspace:*",
     "@fie/liquidity-engine": "workspace:*",
     "@fie/recommendation-ai": "workspace:*",
     "@fie/recommendation-engine": "workspace:*",
