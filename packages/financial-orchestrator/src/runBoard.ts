@@ -5,11 +5,15 @@ import { computeLiquidity } from '@fie/liquidity-engine';
 import { recommendBusinessAction } from '@fie/recommendation-engine';
 import { computeBusinessScore } from '@fie/risk-engine';
 import { deriveCapacity } from './capacity.js';
+import { BOARD_PIPELINE, deriveRiskInputsFromBoard } from './riskDefaults.js';
 import type { BoardInput, BoardSnapshot } from './types.js';
 import { validateBoardInputs } from './validate.js';
 
 /**
- * Runs engines in dependency order. Does not invent missing financial values.
+ * Single coordination entry for Financial OS engines.
+ * Does not invent financial formulas — only validates, orders, and packages.
+ *
+ * Pipeline: validate → capacity → BEP → liquidity → debt optimizer → recommend → score
  */
 export function runBoard(input: BoardInput): BoardSnapshot {
   const validation = validateBoardInputs(input);
@@ -97,13 +101,25 @@ export function runBoard(input: BoardInput): BoardSnapshot {
       ...(input.marketingOverspend ? { marketingOverspend: input.marketingOverspend } : {}),
     });
 
-    if (input.riskComponents && input.riskWeights && input.riskBands) {
-      score = computeBusinessScore({
-        components: input.riskComponents,
-        weights: input.riskWeights,
-        riskBands: input.riskBands,
-      });
-    }
+    const risk =
+      input.riskComponents && input.riskWeights && input.riskBands
+        ? {
+            components: input.riskComponents,
+            weights: input.riskWeights,
+            riskBands: input.riskBands,
+          }
+        : deriveRiskInputsFromBoard({
+            breakEven,
+            runwayMonths: liquidity.runwayMonths,
+            ...(input.debtSnapshots ? { debtSnapshots: input.debtSnapshots } : {}),
+            ...(input.inventoryHint ? { inventory: input.inventoryHint } : {}),
+          });
+
+    score = computeBusinessScore({
+      components: risk.components,
+      weights: risk.weights,
+      riskBands: risk.riskBands,
+    });
   } else {
     if (!breakEven) alertsLite.push('Falta dato: breakEven');
     if (!liquidity) alertsLite.push('Falta dato: liquidity');
@@ -111,6 +127,7 @@ export function runBoard(input: BoardInput): BoardSnapshot {
 
   return {
     validation,
+    pipeline: [...BOARD_PIPELINE],
     capacity,
     breakEven,
     liquidity,

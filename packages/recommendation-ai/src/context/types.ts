@@ -59,6 +59,55 @@ export type FinancialContext = {
     activeSalesChannelLabels: string[];
     expenseCategoryLabels: string[];
   };
+  /** Upcoming vencimientos this month (from Calendario). */
+  calendar: {
+    yearMonth: string | null;
+    eventCount: number | null;
+    upcoming: Array<{
+      date: string;
+      kind: string;
+      label: string;
+      amount: string | null;
+      status: string | null;
+    }>;
+  };
+  /** Explicit owner goals — AI must respect, not invent. */
+  goals: {
+    northStar: string | null;
+    active: Array<{
+      id: string;
+      kind: string;
+      title: string;
+      targetAmount: string | null;
+      targetDate: string | null;
+      relatedObligationId: string | null;
+      notes: string | null;
+      status: string;
+    }>;
+  };
+  /** Named KPIs — precomputed; AI must not invent missing ratios. */
+  kpis: Array<{
+    id: string;
+    label: string;
+    value: string | null;
+    raw: string | null;
+    unit: string;
+    status: string;
+    detail: string;
+    group: string;
+  }>;
+  /** Forward assumptions for simulation — empty = not set. */
+  assumptions: {
+    setLabel: string | null;
+    fields: Array<{
+      key: string;
+      label: string;
+      value: string | null;
+      display: string | null;
+      notes: string | null;
+      active: boolean;
+    }>;
+  };
   health: {
     score: number | null;
     riskLevel: string | null;
@@ -107,6 +156,13 @@ export type FinancialContext = {
       label: string;
       category: string;
       amount: string;
+    }>;
+    /** Effective-dated budget history (plan, not payment actuals). */
+    amountVersions: Array<{
+      label: string;
+      amount: string;
+      effectiveFrom: string;
+      notes: string;
     }>;
   };
   dailyClosing: {

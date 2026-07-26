@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import type { ConfigCatalogItem, LiquidityPolicy, WorkspaceCentralConfig } from '@fie/shared';
 import { PoliciesPanel } from '@/components/os/PoliciesPanel';
+import { SectionAccordion } from '@/components/os/SectionAccordion';
 import type { FinancialContext } from '@/lib/aiRecommend';
 import {
   activeExpenseCategories,
@@ -176,11 +177,13 @@ export function ConfigPanel({
         ) : null}
       </header>
 
-      <section className="panel rounded-2xl p-4 md:p-6">
-        <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted">
-          Identidad y calendario
-        </h3>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <SectionAccordion
+        id="config.identity"
+        title="Identidad y calendario"
+        hint="Moneda, año fiscal, días operativos"
+        defaultOpen
+      >
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <label className="block text-sm">
             Moneda
             <input
@@ -227,11 +230,15 @@ export function ConfigPanel({
             />
           </label>
         </div>
-      </section>
+      </SectionAccordion>
 
-      <section className="panel rounded-2xl p-4 md:p-6">
-        <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted">Metas</h3>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      <SectionAccordion
+        id="config.goals"
+        title="Metas rápidas"
+        hint="Atajos · catálogo completo en Objetivos"
+        defaultOpen={false}
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
           <label className="block text-sm">
             Meta de utilidad ({draft.currency || 'moneda'})
             <input
@@ -259,35 +266,41 @@ export function ConfigPanel({
             ) : null}
           </label>
         </div>
-      </section>
+      </SectionAccordion>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <CatalogEditor
-          title="Canales de venta / ads"
-          hint="Activos alimentan Publicidad y Capacidad ads."
-          items={draft.salesChannels}
-          onChange={(salesChannels) => setDraft({ ...draft, salesChannels })}
-        />
-        <CatalogEditor
-          title="Categorías de gastos"
-          hint="Catálogo para costos y gastos extraordinarios."
-          items={draft.expenseCategories}
-          onChange={(expenseCategories) => setDraft({ ...draft, expenseCategories })}
-        />
-        <CatalogEditor
-          title="Movimientos extraordinarios"
-          hint="Tipos del registro diario (aporte, retiro, activo…)."
-          items={draft.extraordinaryMovementCategories}
-          onChange={(extraordinaryMovementCategories) =>
-            setDraft({ ...draft, extraordinaryMovementCategories })
-          }
-          showDirection
-        />
-      </div>
-
-      {expenseHints ? (
-        <p className="text-xs text-muted">Categorías de gasto activas: {expenseHints}</p>
-      ) : null}
+      <SectionAccordion
+        id="config.catalogs"
+        title="Catálogos (canales, gastos, movimientos)"
+        hint="Alimentan Publicidad, Costos y registro diario"
+        defaultOpen={false}
+      >
+        <div className="grid gap-4 lg:grid-cols-3">
+          <CatalogEditor
+            title="Canales de venta / ads"
+            hint="Activos alimentan Publicidad y Capacidad ads."
+            items={draft.salesChannels}
+            onChange={(salesChannels) => setDraft({ ...draft, salesChannels })}
+          />
+          <CatalogEditor
+            title="Categorías de gastos"
+            hint="Catálogo para costos y gastos extraordinarios."
+            items={draft.expenseCategories}
+            onChange={(expenseCategories) => setDraft({ ...draft, expenseCategories })}
+          />
+          <CatalogEditor
+            title="Movimientos extraordinarios"
+            hint="Tipos del registro diario (aporte, retiro, activo…)."
+            items={draft.extraordinaryMovementCategories}
+            onChange={(extraordinaryMovementCategories) =>
+              setDraft({ ...draft, extraordinaryMovementCategories })
+            }
+            showDirection
+          />
+        </div>
+        {expenseHints ? (
+          <p className="mt-3 text-xs text-muted">Categorías de gasto activas: {expenseHints}</p>
+        ) : null}
+      </SectionAccordion>
 
       <div className="flex flex-wrap items-center gap-3">
         <button
@@ -306,11 +319,12 @@ export function ConfigPanel({
         ) : null}
       </div>
 
-      <div>
-        <h3 className="brand-mark mb-3 text-2xl text-forest">Reserva y liquidez</h3>
-        <p className="mb-4 text-sm text-muted">
-          Parte del Centro de Configuración. Misma política que usa Capacidad y el orquestador.
-        </p>
+      <SectionAccordion
+        id="config.liquidity"
+        title="Reserva y liquidez"
+        hint="Política que usa Capacidad y el orquestador"
+        defaultOpen
+      >
         <PoliciesPanel
           policy={policy}
           onPolicyChange={onPolicyChange}
@@ -319,7 +333,7 @@ export function ConfigPanel({
           openaiConnected={openaiConnected}
           currencyDisplay={draft.currency || config.currency || 'COP'}
         />
-      </div>
+      </SectionAccordion>
     </div>
   );
 }

@@ -9,6 +9,20 @@ export {
   setLineActive,
   reorderLineItems,
 } from './catalog/model.js';
+export {
+  amountAsOf,
+  compareIsoDate,
+  isIsoDate,
+  monthStartIso,
+  projectFixedCostsAsOf,
+  projectModelAsOf,
+  sortSegments,
+} from './catalog/versions.js';
+export type {
+  CostAmountSegment,
+  ProjectFixedCostsAsOfResult,
+  ProjectModelAsOfResult,
+} from './catalog/versions.js';
 export { applyPatch, simulateWhatIf } from './simulate/whatIf.js';
 export type { ModelPatch, WhatIfScenario } from './simulate/whatIf.js';
 export {

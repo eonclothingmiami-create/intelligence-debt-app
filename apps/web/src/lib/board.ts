@@ -54,6 +54,11 @@ export type BuildBoardInputArgs = {
   riskComponents?: Record<string, number>;
   riskWeights?: Record<string, string>;
   riskBands?: { lowMin: number; mediumMin: number };
+  inventoryHint?: {
+    units: string;
+    skusBelowMin: number;
+    skusWithStock: number;
+  };
   asOf?: Date;
 };
 
@@ -88,6 +93,7 @@ export function buildBoardInput(args: BuildBoardInputArgs): BoardInput {
     ...(args.riskComponents ? { riskComponents: args.riskComponents } : {}),
     ...(args.riskWeights ? { riskWeights: args.riskWeights } : {}),
     ...(args.riskBands ? { riskBands: args.riskBands } : {}),
+    ...(args.inventoryHint ? { inventoryHint: args.inventoryHint } : {}),
     ...(args.asOf ? { asOf: args.asOf } : {}),
   };
 }

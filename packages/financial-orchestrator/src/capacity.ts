@@ -121,19 +121,26 @@ export function deriveCapacity(input: BoardInput): CapacitySnapshot {
     gaps.push('canPayDebtExtra');
   }
 
+  // Gastar hoy = liquidez inmediata post-earmarks (operación del día).
   const canSpendToday = immediateFreeCash;
-  const canInvest = immediateFreeCash;
+  // Invertir = excedente que ya respeta reserva (capital de crecimiento / capex).
+  const canInvest = canPayDebtExtra;
   const canRestock = earmark;
   const canWithdrawProfit = canPayDebtExtra;
   const adsFreed = input.marketingFreedCapacity?.trim();
   const adsOver = input.marketingOverspend?.trim();
-  let canSpendAds: string | null = immediateFreeCash;
+  // Publicidad compite con el mismo excedente seguro (no gastar la reserva).
+  let canSpendAds: string | null = canPayDebtExtra;
   if (adsOver && moneyNum(adsOver) > 0) {
     canSpendAds = '0';
     notes.push(`Publicidad ya sobre presupuesto (${adsOver}); capacidad ads = 0.`);
-  } else if (adsFreed && moneyNum(adsFreed) > 0 && immediateFreeCash != null) {
-    canSpendAds = floor0(Math.min(moneyNum(immediateFreeCash), moneyNum(adsFreed)));
-    notes.push(`Publicidad: min(capacidad inmediata, freed ${adsFreed}) = ${canSpendAds}.`);
+  } else if (adsFreed && moneyNum(adsFreed) > 0 && canPayDebtExtra != null) {
+    canSpendAds = floor0(Math.min(moneyNum(canPayDebtExtra), moneyNum(adsFreed)));
+    notes.push(`Publicidad: min(excedente seguro, freed ${adsFreed}) = ${canSpendAds}.`);
+  } else if (canPayDebtExtra != null) {
+    notes.push(
+      `Invertir / ads / utilidad / abono extra comparten el excedente post-reserva (${canPayDebtExtra}).`,
+    );
   }
 
   return {

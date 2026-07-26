@@ -16,19 +16,36 @@ import type {
   WorkspaceCentralConfig,
 } from '@fie/shared';
 import { AiRecommendPanel } from '@/components/os/AiRecommendPanel';
+import { AlertsPanel } from '@/components/os/AlertsPanel';
+import { AssumptionsPanel } from '@/components/os/AssumptionsPanel';
+import { CalendarPanel } from '@/components/os/CalendarPanel';
 import { CapacityPanel } from '@/components/os/CapacityPanel';
 import { ClosingHistoryPanel } from '@/components/os/ClosingHistoryPanel';
 import { ConfigPanel } from '@/components/os/ConfigPanel';
+import { CostVersionsPanel } from '@/components/os/CostVersionsPanel';
 import { DailyClosingGate } from '@/components/os/DailyClosingGate';
 import { DebtsPanel } from '@/components/os/DebtsPanel';
+import { GoalsPanel } from '@/components/os/GoalsPanel';
+import { KpisPanel } from '@/components/os/KpisPanel';
 import { PayrollColombiaPanel } from '@/components/os/PayrollColombiaPanel';
+import { ReportsPanel } from '@/components/os/ReportsPanel';
 import { ScenariosPanel } from '@/components/os/ScenariosPanel';
+import { SectionAccordion } from '@/components/os/SectionAccordion';
 import {
   actionComputeBreakEven,
   actionLoadDemo,
   actionMarketingPortfolio,
   actionRunBoard,
 } from '@/lib/actions';
+import { alertsToContextStrings, deriveOperationalAlerts } from '@/lib/alerts';
+import {
+  activeAssumptions,
+  ASSUMPTION_META,
+  formatAssumptionDisplay,
+  loadAssumptionsWorkspace,
+  type AssumptionsWorkspace,
+} from '@/lib/assumptionsStore';
+import { buildMonthEvents } from '@/lib/calendar';
 import {
   createDemoDebtWorkspace,
   debtDashboard,
@@ -44,7 +61,14 @@ import {
   activeExpenseCategories,
   activeSalesChannels,
   loadCentralConfig,
+  saveCentralConfig,
 } from '@/lib/configStore';
+import {
+  loadGoalsWorkspace,
+  syncGoalsIntoConfigAmounts,
+  type GoalsWorkspace,
+} from '@/lib/goalsStore';
+import { deriveKpis, kpisToContext } from '@/lib/kpis';
 import { getStoredOpenAiKey } from '@/lib/openaiKey';
 import { fetchSalesDashboard, pingApi, syncHeraInventory, syncHeraSalesMonth } from '@/lib/erpApi';
 import type { HeraInventorySnapshot } from '@/lib/erpApi';
@@ -75,6 +99,14 @@ import {
 } from '@/lib/scenarioStore';
 import { loadClosingBoardFacts, type ClosingBoardFacts } from '@/lib/closingFacts';
 import type { ClosingStatus } from '@/lib/closingApi';
+import {
+  currentMonthStart,
+  loadCostVersionsWorkspace,
+  removeVersionsForLine,
+  seedInitialVersion,
+  type CostVersionsWorkspace,
+} from '@/lib/costVersionsStore';
+import { loadLastTab, persistLastTab } from '@/lib/uiLayoutStore';
 
 type Tab =
   | 'overview'
@@ -83,6 +115,12 @@ type Tab =
   | 'debts'
   | 'marketing'
   | 'config'
+  | 'goals'
+  | 'kpis'
+  | 'assumptions'
+  | 'reports'
+  | 'alerts'
+  | 'calendar'
   | 'scenarios'
   | 'closings'
   | 'capacidad'
@@ -97,18 +135,26 @@ type ChannelBudgetRow = {
 };
 
 const TABS: { id: Tab; label: string }[] = [
+  { id: 'capacidad', label: 'Capacidad' },
+  { id: 'decision', label: 'Decisión' },
+  { id: 'ai', label: 'CFO AI' },
   { id: 'overview', label: 'Resumen' },
   { id: 'sales', label: 'Ventas ERP' },
   { id: 'debts', label: 'Deudas' },
   { id: 'costs', label: 'Costos' },
   { id: 'marketing', label: 'Publicidad' },
   { id: 'config', label: 'Configuración' },
+  { id: 'goals', label: 'Objetivos' },
+  { id: 'kpis', label: 'KPIs' },
+  { id: 'assumptions', label: 'Supuestos' },
+  { id: 'reports', label: 'Reportes' },
+  { id: 'alerts', label: 'Alertas' },
+  { id: 'calendar', label: 'Calendario' },
   { id: 'scenarios', label: 'Escenarios' },
   { id: 'closings', label: 'Movimientos' },
-  { id: 'capacidad', label: 'Capacidad' },
-  { id: 'decision', label: 'Decisión' },
-  { id: 'ai', label: 'CFO AI' },
 ];
+
+const TAB_IDS = TABS.map((t) => t.id);
 
 const PERIOD_FROM = '2026-07-01';
 const PERIOD_TO = '2026-07-31';
@@ -131,7 +177,7 @@ function channelsToBudgetRows(
 }
 
 export function OsShell() {
-  const [tab, setTab] = useState<Tab>('overview');
+  const [tab, setTab] = useState<Tab>(() => loadLastTab(TAB_IDS, 'capacidad') as Tab);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [model, setModel] = useState<BreakEvenModel | null>(null);
@@ -166,6 +212,13 @@ export function OsShell() {
   );
   const [centralConfig, setCentralConfig] = useState<WorkspaceCentralConfig>(() =>
     loadCentralConfig(),
+  );
+  const [goalsWs, setGoalsWs] = useState<GoalsWorkspace>(() => loadGoalsWorkspace());
+  const [assumptionsWs, setAssumptionsWs] = useState<AssumptionsWorkspace>(() =>
+    loadAssumptionsWorkspace(),
+  );
+  const [costVersionsWs, setCostVersionsWs] = useState<CostVersionsWorkspace>(() =>
+    loadCostVersionsWorkspace(),
   );
   const [alertRate, setAlertRate] = useState('0.10');
   const [interestSaved, setInterestSaved] = useState('120000');
@@ -252,9 +305,62 @@ export function OsShell() {
     ],
   );
 
+  const operationalAlerts = useMemo(
+    () =>
+      deriveOperationalAlerts({
+        cashOnHand: cash || cashSnapshot.cashOnHand,
+        immediateFreeCash: capacityLive.immediateFreeCash,
+        nextQuincena: capacityLive.nextQuincena,
+        creditCardInstallment: capacityLive.creditCardInstallment,
+        capacityGaps: capacityLive.gaps,
+        liquidityPolicyComplete: isLiquidityPolicyComplete(liquidityPolicy),
+        reserveMonths: reserveMonths,
+        runwayMonths: liquidity?.runwayMonths ?? capacityLive.runwayMonths,
+        minCashFloor: minCashFloor,
+        safetyMargin: breakEven?.safetyMargin ?? null,
+        safetyMarginRate: breakEven?.safetyMarginRate ?? null,
+        marketingOverspend: portfolio?.overspendAmount ?? null,
+        marketingAlert: Boolean(portfolio?.alert),
+        pendingClosingDays: closingStatus?.pendingDays ?? [],
+        inventorySkusBelowMin: inventorySnap?.skusBelowMin ?? null,
+        inventorySkusWithStock: inventorySnap?.skusWithStock ?? null,
+        debtDues: debtDashboard(debtWs).snapshots.map((s) => ({
+          id: s.obligation.id,
+          label: s.obligation.label,
+          paymentDueDay: s.obligation.paymentDueDay,
+          closed: Boolean(s.state.closed),
+        })),
+        fixedCostDues: (model?.fixedCosts ?? []).map((l) => ({
+          id: l.id,
+          label: l.label,
+          dueDay: l.dueDay,
+          active: l.active,
+        })),
+      }),
+    [
+      cash,
+      cashSnapshot.cashOnHand,
+      capacityLive,
+      liquidityPolicy,
+      reserveMonths,
+      liquidity?.runwayMonths,
+      minCashFloor,
+      breakEven?.safetyMargin,
+      breakEven?.safetyMarginRate,
+      portfolio?.overspendAmount,
+      portfolio?.alert,
+      closingStatus?.pendingDays,
+      inventorySnap?.skusBelowMin,
+      inventorySnap?.skusWithStock,
+      debtWs,
+      model?.fixedCosts,
+    ],
+  );
+
   useEffect(() => {
-    if (cashPlan.immediateFreeCash != null) {
-      setFreeCash(cashPlan.immediateFreeCash);
+    const next = cashPlan.immediateFreeCash;
+    if (next != null) {
+      setFreeCash((prev) => (prev === next ? prev : next));
     }
   }, [cashPlan.immediateFreeCash]);
 
@@ -295,6 +401,51 @@ export function OsShell() {
     () => optimizeExtraCash(debtWs, proposedExtra.trim() || '1200000'),
     [debtWs, proposedExtra],
   );
+  const boardKpis = useMemo(
+    () =>
+      deriveKpis({
+        currency: workspaceCurrency,
+        cashOnHand: cash || cashSnapshot.cashOnHand || null,
+        immediateFreeCash: capacityLive.immediateFreeCash,
+        runwayMonths: liquidity?.runwayMonths ?? capacityLive.runwayMonths,
+        reserveMonths: reserveMonths || null,
+        reserveAmount: liquidity?.reserveAmount ?? capacityLive.reserveAmount,
+        maxSafeExtraDebtPayment: liquidity?.maxSafeExtraDebtPayment ?? capacityLive.canPayDebtExtra,
+        breakEvenSales: breakEven?.breakEvenSales ?? null,
+        projectedSales: breakEven?.projectedSales ?? null,
+        safetyMargin: breakEven?.safetyMargin ?? null,
+        safetyMarginRate: breakEven?.safetyMarginRate ?? null,
+        contributionMarginRate: breakEven?.contributionMarginRate ?? null,
+        totalFixedCosts: breakEven?.totalFixedCosts ?? null,
+        monthSales: salesDash?.month.netSales ?? null,
+        totalDebtBalance: debtDash.totalBalance,
+        estimatedMonthlyInterest: debtDash.estimatedMonthlyInterest,
+        monthlyInstallmentsDue: debtDash.monthlyInstallmentsDue,
+        marketingBudget: portfolio?.totalBudgetAmount ?? null,
+        marketingActual: portfolio?.totalActualAmount ?? null,
+        inventoryUnits: inventorySnap?.units ?? null,
+        inventoryValueAtCost: inventorySnap?.valueAtCost ?? null,
+        skusBelowMin: inventorySnap?.skusBelowMin ?? null,
+        skusWithStock: inventorySnap?.skusWithStock ?? null,
+        healthScore: score?.score ?? null,
+        riskLevel: score?.riskLevel ?? null,
+      }),
+    [
+      workspaceCurrency,
+      cash,
+      cashSnapshot.cashOnHand,
+      capacityLive,
+      liquidity,
+      reserveMonths,
+      breakEven,
+      salesDash?.month.netSales,
+      debtDash,
+      portfolio?.totalBudgetAmount,
+      portfolio?.totalActualAmount,
+      inventorySnap,
+      score,
+    ],
+  );
 
   function loadDemo() {
     setError(null);
@@ -309,7 +460,7 @@ export function OsShell() {
         }
         setModel(next);
         setBreakEven(await actionComputeBreakEven(next));
-        setTab('overview');
+        goToTab('capacidad');
         void refreshClosingFacts(next);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Error cargando demo');
@@ -403,6 +554,7 @@ export function OsShell() {
     const remaining = model.fixedCosts
       .filter((l) => l.id !== id)
       .map((l, idx) => ({ ...l, sortOrder: idx }));
+    setCostVersionsWs(removeVersionsForLine(costVersionsWs, id));
     recomputeBreakEven({ ...model, fixedCosts: remaining });
   }
 
@@ -419,6 +571,13 @@ export function OsShell() {
     const nextSort =
       model.fixedCosts.reduce((max, l) => (l.sortOrder > max ? l.sortOrder : max), -1) + 1;
     const dueDayNum = Number(newFixed.dueDay);
+    const seeded = seedInitialVersion(costVersionsWs, {
+      lineId: id,
+      amount,
+      effectiveFrom: currentMonthStart(),
+      notes: 'Alta de costo fijo',
+    });
+    if (seeded.ok) setCostVersionsWs(seeded.workspace);
     recomputeBreakEven({
       ...model,
       fixedCosts: [
@@ -589,11 +748,14 @@ export function OsShell() {
   }
 
   function buildBoardContext(overrideClosing?: ClosingBoardFacts | null): FinancialContext {
-    const alerts: string[] = [];
-    if (portfolio?.alert) {
+    const alerts: string[] = alertsToContextStrings(operationalAlerts);
+    if (portfolio?.alert && !alerts.some((a) => a.includes('ADS_OVER'))) {
       alerts.push('Hay desviación de publicidad vs presupuesto según la política configurada.');
     }
-    if (!isLiquidityPolicyComplete(liquidityPolicy)) {
+    if (
+      !isLiquidityPolicyComplete(liquidityPolicy) &&
+      !alerts.some((a) => a.includes('LIQUIDITY_POLICY'))
+    ) {
       alerts.push('Falta política de liquidez (reserva en meses).');
     }
     const closing = overrideClosing ?? closingFacts;
@@ -653,6 +815,81 @@ export function OsShell() {
         activeSalesChannelLabels: marketingChannels.map((c) => c.label),
         expenseCategoryLabels: expenseCategoryOptions.map((c) => c.label),
       },
+      calendar: (() => {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = now.getMonth() + 1;
+        const monthEvents = buildMonthEvents({
+          year: y,
+          month: m,
+          source: {
+            fixedCosts: (model?.fixedCosts ?? []).map((l) => ({
+              id: l.id,
+              label: l.label,
+              amount: l.amount,
+              category: l.category,
+              active: l.active,
+              dueDay: l.dueDay,
+            })),
+            obligations: debtWs.obligations.map((o) => ({
+              id: o.id,
+              label: o.label,
+              active: o.active,
+              paymentDueDay: o.paymentDueDay,
+              targetPaymentAmount: o.targetPaymentAmount,
+              fixedInstallmentAmount: o.fixedInstallmentAmount,
+              minimumPaymentAmount: o.minimumPaymentAmount,
+            })),
+          },
+          closingDaysOfMonth: centralConfig.closingDaysOfMonth,
+          payrollMonthly: capacityLive.payrollMonthly,
+          inventoryRestockCycleDays: centralConfig.inventoryRestockCycleDays,
+          asOf: now,
+        });
+        const today = now.getDate();
+        const upcoming = monthEvents
+          .filter((e) => e.day >= today)
+          .slice(0, 12)
+          .map((e) => ({
+            date: e.date,
+            kind: e.kind,
+            label: e.label,
+            amount: e.amount,
+            status: e.status,
+          }));
+        return {
+          yearMonth: `${y}-${String(m).padStart(2, '0')}`,
+          eventCount: monthEvents.length,
+          upcoming,
+        };
+      })(),
+      goals: {
+        northStar: goalsWs.northStar || null,
+        active: goalsWs.goals
+          .filter((g) => g.status === 'active')
+          .map((g) => ({
+            id: g.id,
+            kind: g.kind,
+            title: g.title,
+            targetAmount: g.targetAmount || null,
+            targetDate: g.targetDate || null,
+            relatedObligationId: g.relatedObligationId || null,
+            notes: g.notes || null,
+            status: g.status,
+          })),
+      },
+      kpis: kpisToContext(boardKpis),
+      assumptions: {
+        setLabel: assumptionsWs.setLabel || null,
+        fields: assumptionsWs.fields.map((f) => ({
+          key: f.key,
+          label: ASSUMPTION_META[f.key].label,
+          value: f.value || null,
+          display: f.value ? formatAssumptionDisplay(f) : null,
+          notes: f.notes || null,
+          active: f.active,
+        })),
+      },
       health: score ? { score: score.score, riskLevel: score.riskLevel } : null,
       engineRecommendation: recommendation
         ? {
@@ -701,6 +938,15 @@ export function OsShell() {
           category: l.category,
           amount: l.amount,
         })),
+        amountVersions: costVersionsWs.versions.map((v) => {
+          const line = model?.fixedCosts.find((l) => l.id === v.lineId);
+          return {
+            label: line?.label ?? v.lineId,
+            amount: v.amount,
+            effectiveFrom: v.effectiveFrom,
+            notes: v.notes,
+          };
+        }),
       },
       inventory: inventorySnap
         ? {
@@ -748,6 +994,18 @@ export function OsShell() {
           : 'Sin piso absoluto de caja.',
         liquidityPolicy.notes ? `Notas política: ${liquidityPolicy.notes}` : '',
         'Objetivo declarado: salir de deudas sin perder liquidez operativa; robustecer el negocio.',
+        goalsWs.northStar ? `Visión norte (Objetivos): ${goalsWs.northStar}` : '',
+        ...goalsWs.goals
+          .filter((g) => g.status === 'active')
+          .map(
+            (g) =>
+              `Objetivo activo [${g.kind}]: ${g.title}${g.targetAmount ? ` · meta ${g.targetAmount}` : ''}${g.targetDate ? ` · hasta ${g.targetDate}` : ''}.`,
+          ),
+        assumptionsWs.setLabel ? `Set de supuestos: ${assumptionsWs.setLabel}.` : '',
+        ...activeAssumptions(assumptionsWs).map(
+          (f) =>
+            `Supuesto ${ASSUMPTION_META[f.key].label}: ${formatAssumptionDisplay(f)}${f.notes ? ` (${f.notes})` : ''}.`,
+        ),
         centralConfig.targetProfitAmount
           ? `Meta utilidad (config): ${centralConfig.targetProfitAmount}.`
           : 'Meta utilidad no definida en Configuración.',
@@ -785,6 +1043,9 @@ export function OsShell() {
           : closingStatus
             ? 'Registro diario de movimientos al día — historial disponible para AI.'
             : 'Estado de registro de movimientos no disponible.',
+        costVersionsWs.versions.length
+          ? `Versiones de costos fijos: ${costVersionsWs.versions.length} segmento(s) con vigencia.`
+          : 'Sin versiones de costos fijos — as-of histórico reportará gaps hasta versionar.',
       ].filter(Boolean),
     });
   }
@@ -793,19 +1054,19 @@ export function OsShell() {
     if (!breakEven) return;
     if (!isLiquidityPolicyComplete(liquidityPolicy)) {
       setError('Define primero la política de liquidez (pestaña Configuración).');
-      setTab('config');
+      goToTab('config');
       return;
     }
     if (!cash.trim()) {
       setError('Indica la caja disponible hoy.');
-      setTab('capacidad');
+      goToTab('capacidad');
       return;
     }
     if (!freeCash.trim() && capacityLive.immediateFreeCash == null) {
       setError(
         'Falta capacidad inmediata. Completa nómina en costos y cuota TC en deudas, o revisa Capacidad.',
       );
-      setTab('capacidad');
+      goToTab('capacidad');
       return;
     }
     setError(null);
@@ -844,13 +1105,7 @@ export function OsShell() {
         });
         setPortfolio(mkt);
 
-        let inventoryScore = 25;
-        if (inventorySnap && Number(inventorySnap.units) > 0) {
-          const withStock = Math.max(1, inventorySnap.skusWithStock);
-          const lowRatio = inventorySnap.skusBelowMin / withStock;
-          inventoryScore = lowRatio > 0.4 ? 45 : lowRatio > 0.2 ? 60 : 80;
-        }
-
+        // Single entry: orchestrator validates, orders engines, derives risk if omitted.
         const board = await actionRunBoard({
           cash: { ...cashSnapshot, cashOnHand: cash },
           policy: liquidityPolicy,
@@ -862,21 +1117,15 @@ export function OsShell() {
           futureInterestSaved: interestSaved,
           marketingFreedCapacity: mkt.freedCapacityAmount,
           marketingOverspend: mkt.overspendAmount,
-          riskComponents: {
-            liquidity: Number(capacityLive.runwayMonths ?? 0) >= 2 ? 75 : 40,
-            breakEven: Number(breakEven.safetyMarginRate ?? 0) > 0 ? 80 : 35,
-            debtCoverage: Number(debtDash.totalBalance) > 0 ? 55 : 80,
-            margin: Number(breakEven.contributionMarginRate) * 100,
-            inventory: inventoryScore,
-          },
-          riskWeights: {
-            liquidity: '0.25',
-            breakEven: '0.25',
-            debtCoverage: '0.20',
-            margin: '0.20',
-            inventory: '0.10',
-          },
-          riskBands: { lowMin: 70, mediumMin: 45 },
+          ...(inventorySnap
+            ? {
+                inventoryHint: {
+                  units: inventorySnap.units,
+                  skusBelowMin: inventorySnap.skusBelowMin,
+                  skusWithStock: inventorySnap.skusWithStock,
+                },
+              }
+            : {}),
         });
 
         if (board.liquidity) {
@@ -886,10 +1135,8 @@ export function OsShell() {
           setBreakEven(board.breakEven);
         }
 
-        const opt =
-          board.debtOptimizer ??
-          optimizeExtraCash(debtWs, board.liquidity?.maxSafeExtraDebtPayment ?? '0');
-        if (!proposedExtra.trim() && opt.suggestedAmount !== '0') {
+        const opt = board.debtOptimizer;
+        if (opt && !proposedExtra.trim() && opt.suggestedAmount !== '0') {
           setProposedExtra(opt.suggestedAmount);
         }
 
@@ -902,11 +1149,12 @@ export function OsShell() {
             ...board.recommendation,
             rationale: [
               ...board.recommendation.rationale,
-              ...opt.rationale,
-              opt.suggestedTargetObligationId
+              ...(opt?.rationale ?? []),
+              opt?.suggestedTargetObligationId
                 ? `Objetivo de abono sugerido por Debt Optimizer: ${opt.ranked.find((r) => r.obligationId === opt.suggestedTargetObligationId)?.label ?? opt.suggestedTargetObligationId} (${opt.suggestedAmount}).`
-                : 'Debt Optimizer: sin candidato de abono extra.',
+                : 'Debt Optimizer: sin candidato de abono extra (orquestador).',
               ...board.alertsLite.map((a) => `Orquestador: ${a}`),
+              `Pipeline: ${board.pipeline.join(' → ')}`,
             ],
           };
           setRecommendation(enriched);
@@ -914,7 +1162,7 @@ export function OsShell() {
         if (board.score) {
           setScore(board.score);
         }
-        setTab('decision');
+        goToTab('decision');
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Error en decisión');
       }
@@ -924,7 +1172,7 @@ export function OsShell() {
   async function generateAiRecommendation() {
     if (!getStoredOpenAiKey()) {
       setError('Conecta tu API key de OpenAI en la pestaña CFO AI.');
-      setTab('ai');
+      goToTab('ai');
       return;
     }
     if (closingStatus && closingStatus.pendingDays.length > 0) {
@@ -947,7 +1195,7 @@ export function OsShell() {
       }
       const rec = await requestAiRecommendation(buildBoardContext(refreshed?.facts ?? null));
       setAiRec(rec);
-      setTab('ai');
+      goToTab('ai');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error generando recomendación AI');
     } finally {
@@ -956,6 +1204,11 @@ export function OsShell() {
   }
 
   const hasPendingClosings = Boolean(closingStatus && closingStatus.pendingDays.length > 0);
+
+  function goToTab(next: Tab) {
+    setTab(next);
+    persistLastTab(next);
+  }
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 md:px-6 md:py-8">
@@ -981,9 +1234,10 @@ export function OsShell() {
       ) : null}
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="brand-mark text-3xl text-forest md:text-4xl">Tablero operativo</h1>
+          <h1 className="brand-mark text-3xl text-forest md:text-4xl">Capacidad Financiera</h1>
           <p className="mt-1 text-sm text-muted">
-            Demo Local 311 como dataset de ejemplo — no es un default del producto.
+            Home del dueño: qué puedes hacer hoy con tu caja. Los demás módulos alimentan estas
+            respuestas.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1003,7 +1257,7 @@ export function OsShell() {
           </button>
           <button
             type="button"
-            onClick={() => setTab('ai')}
+            onClick={() => goToTab('ai')}
             className="rounded-full border border-forest bg-moss px-4 py-2 text-sm font-semibold text-mist"
           >
             CFO AI
@@ -1016,12 +1270,19 @@ export function OsShell() {
           <button
             key={t.id}
             type="button"
-            onClick={() => setTab(t.id)}
+            onClick={() => {
+              goToTab(t.id);
+            }}
             className={`rounded-full px-4 py-2 text-sm font-medium whitespace-nowrap ${
               tab === t.id ? 'bg-forest text-mist' : 'bg-white/60 text-ink/80'
             }`}
           >
             {t.label}
+            {t.id === 'alerts' && operationalAlerts.some((a) => a.severity === 'critical')
+              ? ` (${operationalAlerts.filter((a) => a.severity === 'critical').length})`
+              : t.id === 'alerts' && operationalAlerts.length > 0
+                ? ` (${operationalAlerts.length})`
+                : ''}
           </button>
         ))}
       </nav>
@@ -1158,14 +1419,19 @@ export function OsShell() {
               ))}
             </datalist>
           ) : null}
-          <div className="panel rounded-2xl p-4 md:p-6">
-            <h2 className="brand-mark text-2xl text-forest">Costos fijos (presupuesto)</h2>
+          <header>
+            <h2 className="brand-mark text-2xl text-forest">Costos</h2>
             <p className="mt-1 text-sm text-muted">
-              Presupuesto mensual para BEP y proyecciones. Define el día de pago; el registro diario
-              solo confirma si se pagó. No vuelvas a digitar el monto cada mes. Categorías desde
-              Configuración.
+              Presupuesto para BEP. Secciones colapsables — el estado abierto se recuerda.
             </p>
-            <ul className="mt-6 divide-y divide-[var(--line)]">
+          </header>
+          <SectionAccordion
+            id="costs.fixed"
+            title="Costos fijos (presupuesto)"
+            hint="Día de pago + monto mensual · versiones abajo"
+            defaultOpen
+          >
+            <ul className="divide-y divide-[var(--line)]">
               {model.fixedCosts.map((line) => (
                 <li
                   key={line.id}
@@ -1230,69 +1496,87 @@ export function OsShell() {
             {model.fixedCosts.length === 0 ? (
               <p className="mt-4 text-sm text-muted">No hay costos fijos. Agrega al menos uno.</p>
             ) : null}
-          </div>
-
-          <div className="panel rounded-2xl p-4 md:p-6">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted">
-              Nuevo costo fijo
-            </h3>
-            <div className="mt-4 grid gap-3 md:grid-cols-[1.1fr_0.9fr_0.8fr_0.55fr_auto] md:items-end">
-              <label className="block text-xs text-muted">
-                Nombre
-                <input
-                  className="mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
-                  placeholder="Ej. Seguro local"
-                  value={newFixed.label}
-                  onChange={(e) => setNewFixed((s) => ({ ...s, label: e.target.value }))}
-                />
-              </label>
-              <label className="block text-xs text-muted">
-                Categoría
-                <input
-                  className="mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
-                  list="fie-config-expense-categories"
-                  placeholder="Ej. Local"
-                  value={newFixed.category}
-                  onChange={(e) => setNewFixed((s) => ({ ...s, category: e.target.value }))}
-                />
-              </label>
-              <label className="block text-xs text-muted">
-                Monto presupuesto
-                <input
-                  className="metric mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
-                  inputMode="decimal"
-                  placeholder="0"
-                  value={newFixed.amount}
-                  onChange={(e) => setNewFixed((s) => ({ ...s, amount: e.target.value }))}
-                />
-              </label>
-              <label className="block text-xs text-muted">
-                Día pago
-                <input
-                  className="mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
-                  inputMode="numeric"
-                  placeholder="5"
-                  value={newFixed.dueDay}
-                  onChange={(e) => setNewFixed((s) => ({ ...s, dueDay: e.target.value }))}
-                />
-              </label>
-              <button
-                type="button"
-                onClick={addFixedCost}
-                className="rounded-full bg-forest px-4 py-2 text-sm font-semibold text-mist"
-              >
-                Agregar
-              </button>
+            <div className="mt-6 border-t border-[var(--line)] pt-4">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted">
+                Nuevo costo fijo
+              </h3>
+              <div className="mt-4 grid gap-3 md:grid-cols-[1.1fr_0.9fr_0.8fr_0.55fr_auto] md:items-end">
+                <label className="block text-xs text-muted">
+                  Nombre
+                  <input
+                    className="mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
+                    placeholder="Ej. Seguro local"
+                    value={newFixed.label}
+                    onChange={(e) => setNewFixed((s) => ({ ...s, label: e.target.value }))}
+                  />
+                </label>
+                <label className="block text-xs text-muted">
+                  Categoría
+                  <input
+                    className="mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
+                    list="fie-config-expense-categories"
+                    placeholder="Ej. Local"
+                    value={newFixed.category}
+                    onChange={(e) => setNewFixed((s) => ({ ...s, category: e.target.value }))}
+                  />
+                </label>
+                <label className="block text-xs text-muted">
+                  Monto presupuesto
+                  <input
+                    className="metric mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
+                    inputMode="decimal"
+                    placeholder="0"
+                    value={newFixed.amount}
+                    onChange={(e) => setNewFixed((s) => ({ ...s, amount: e.target.value }))}
+                  />
+                </label>
+                <label className="block text-xs text-muted">
+                  Día pago
+                  <input
+                    className="mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
+                    inputMode="numeric"
+                    placeholder="5"
+                    value={newFixed.dueDay}
+                    onChange={(e) => setNewFixed((s) => ({ ...s, dueDay: e.target.value }))}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={addFixedCost}
+                  className="rounded-full bg-forest px-4 py-2 text-sm font-semibold text-mist"
+                >
+                  Agregar
+                </button>
+              </div>
             </div>
-          </div>
+          </SectionAccordion>
 
-          <div className="panel rounded-2xl p-4 md:p-6">
-            <h2 className="brand-mark text-2xl text-forest">Costos variables (por unidad)</h2>
-            <p className="mt-1 text-sm text-muted">
-              Empaque, insumos, logística unitaria, etc. Entran al costo completo de la prenda y al
-              BEP.
-            </p>
-            <ul className="mt-6 divide-y divide-[var(--line)]">
+          <SectionAccordion
+            id="costs.versions"
+            title="Versiones de costos"
+            hint="Arriendo 2025 → 2026 sin perder historial"
+            defaultOpen={false}
+          >
+            <CostVersionsPanel
+              fixedCosts={model.fixedCosts.map((l) => ({
+                id: l.id,
+                label: l.label,
+                amount: l.amount,
+                category: l.category,
+              }))}
+              workspace={costVersionsWs}
+              onWorkspaceChange={setCostVersionsWs}
+              onApplyLiveAmount={(lineId, amount) => updateFixedCost(lineId, { amount })}
+            />
+          </SectionAccordion>
+
+          <SectionAccordion
+            id="costs.variable"
+            title="Costos variables (por unidad)"
+            hint="Empaque, insumos, logística unitaria"
+            defaultOpen={false}
+          >
+            <ul className="divide-y divide-[var(--line)]">
               {model.variableCosts.map((line) => (
                 <li
                   key={line.id}
@@ -1371,15 +1655,15 @@ export function OsShell() {
                 Agregar
               </button>
             </div>
-          </div>
+          </SectionAccordion>
 
-          <div className="panel rounded-2xl p-4 md:p-6">
-            <h2 className="brand-mark text-2xl text-forest">Margen y canales</h2>
-            <p className="mt-1 text-sm text-muted">
-              Costo de prenda + utilidad sobre precio por canal (no todos venden igual). El BEP usa
-              el mix ponderado. Partimos de ~50% en todos; ajústalo.
-            </p>
-            <label className="mt-4 block text-sm">
+          <SectionAccordion
+            id="costs.margins"
+            title="Margen y canales"
+            hint="COGS + utilidad por canal · mix ponderado al BEP"
+            defaultOpen={false}
+          >
+            <label className="block text-sm">
               Costo de mercancía / prenda (COGS)
               <input
                 className="metric mt-1 w-full max-w-xs rounded-lg border border-[var(--line)] bg-white px-3 py-2"
@@ -1448,12 +1732,19 @@ export function OsShell() {
               Margen de contribución actual (blend):{' '}
               {breakEven ? formatPct(breakEven.contributionMarginRate) : '—'}
             </p>
-          </div>
+          </SectionAccordion>
 
-          <PayrollColombiaPanel
-            onApply={applyColombiaPayroll}
-            onApplyHera={applyHeraEmployeesPayroll}
-          />
+          <SectionAccordion
+            id="costs.payroll"
+            title="Nómina Colombia"
+            hint="Provisiones y SMMLV — aplica al catálogo de costos"
+            defaultOpen={false}
+          >
+            <PayrollColombiaPanel
+              onApply={applyColombiaPayroll}
+              onApplyHera={applyHeraEmployeesPayroll}
+            />
+          </SectionAccordion>
         </section>
       ) : null}
 
@@ -1584,6 +1875,189 @@ export function OsShell() {
         />
       ) : null}
 
+      {tab === 'goals' ? (
+        <GoalsPanel
+          workspace={goalsWs}
+          onChange={(ws) => {
+            setGoalsWs(ws);
+            const synced = syncGoalsIntoConfigAmounts(ws);
+            if (synced.targetProfitAmount || synced.debtReductionTargetAmount) {
+              const next = saveCentralConfig({
+                ...centralConfig,
+                ...(synced.targetProfitAmount
+                  ? { targetProfitAmount: synced.targetProfitAmount }
+                  : {}),
+                ...(synced.debtReductionTargetAmount
+                  ? { debtReductionTargetAmount: synced.debtReductionTargetAmount }
+                  : {}),
+              });
+              setCentralConfig(next);
+            }
+          }}
+          facts={{
+            totalDebtBalance: debtDash.totalBalance,
+            reserveMonths: reserveMonths || null,
+            runwayMonths: liquidity?.runwayMonths ?? capacityLive.runwayMonths,
+            monthSales: salesDash?.month.netSales ?? null,
+            marketingBudgetTotal: portfolio?.totalBudgetAmount ?? null,
+            cashOnHand: cash || cashSnapshot.cashOnHand || null,
+            currency: workspaceCurrency,
+          }}
+          debtOptions={debtWs.obligations
+            .filter((o) => o.active)
+            .map((o) => ({ id: o.id, label: o.label }))}
+          onGoToConfig={() => goToTab('config')}
+          onGoToDecision={() => goToTab('decision')}
+        />
+      ) : null}
+
+      {tab === 'kpis' ? (
+        <KpisPanel
+          input={{
+            currency: workspaceCurrency,
+            cashOnHand: cash || cashSnapshot.cashOnHand || null,
+            immediateFreeCash: capacityLive.immediateFreeCash,
+            runwayMonths: liquidity?.runwayMonths ?? capacityLive.runwayMonths,
+            reserveMonths: reserveMonths || null,
+            reserveAmount: liquidity?.reserveAmount ?? capacityLive.reserveAmount,
+            maxSafeExtraDebtPayment:
+              liquidity?.maxSafeExtraDebtPayment ?? capacityLive.canPayDebtExtra,
+            breakEvenSales: breakEven?.breakEvenSales ?? null,
+            projectedSales: breakEven?.projectedSales ?? null,
+            safetyMargin: breakEven?.safetyMargin ?? null,
+            safetyMarginRate: breakEven?.safetyMarginRate ?? null,
+            contributionMarginRate: breakEven?.contributionMarginRate ?? null,
+            totalFixedCosts: breakEven?.totalFixedCosts ?? null,
+            monthSales: salesDash?.month.netSales ?? null,
+            totalDebtBalance: debtDash.totalBalance,
+            estimatedMonthlyInterest: debtDash.estimatedMonthlyInterest,
+            monthlyInstallmentsDue: debtDash.monthlyInstallmentsDue,
+            marketingBudget: portfolio?.totalBudgetAmount ?? null,
+            marketingActual: portfolio?.totalActualAmount ?? null,
+            inventoryUnits: inventorySnap?.units ?? null,
+            inventoryValueAtCost: inventorySnap?.valueAtCost ?? null,
+            skusBelowMin: inventorySnap?.skusBelowMin ?? null,
+            skusWithStock: inventorySnap?.skusWithStock ?? null,
+            healthScore: score?.score ?? null,
+            riskLevel: score?.riskLevel ?? null,
+          }}
+          onGoToCapacidad={() => goToTab('capacidad')}
+          onGoToDecision={() => goToTab('decision')}
+        />
+      ) : null}
+
+      {tab === 'assumptions' ? (
+        <AssumptionsPanel
+          workspace={assumptionsWs}
+          onChange={setAssumptionsWs}
+          onGoToScenarios={() => goToTab('scenarios')}
+        />
+      ) : null}
+
+      {tab === 'reports' ? (
+        <ReportsPanel
+          input={{
+            currency: workspaceCurrency,
+            cashOnHand: cash || cashSnapshot.cashOnHand || null,
+            immediateFreeCash: capacityLive.immediateFreeCash,
+            runwayMonths: liquidity?.runwayMonths ?? capacityLive.runwayMonths,
+            reserveMonths: reserveMonths || null,
+            reserveAmount: liquidity?.reserveAmount ?? capacityLive.reserveAmount,
+            minCashFloor: minCashFloor || null,
+            maxSafeExtraDebt: liquidity?.maxSafeExtraDebtPayment ?? capacityLive.canPayDebtExtra,
+            monthSales: salesDash?.month.netSales ?? null,
+            breakEvenSales: breakEven?.breakEvenSales ?? null,
+            safetyMargin: breakEven?.safetyMargin ?? null,
+            contributionMarginRate: breakEven?.contributionMarginRate ?? null,
+            totalFixedCosts: breakEven?.totalFixedCosts ?? null,
+            totalDebtBalance: debtDash.totalBalance,
+            estimatedMonthlyInterest: debtDash.estimatedMonthlyInterest,
+            obligations: debtDash.snapshots.map((s) => ({
+              label: s.obligation.label,
+              kindLabel: s.obligation.kindLabel,
+              balance: s.balance,
+              installment:
+                s.obligation.targetPaymentAmount ??
+                s.obligation.fixedInstallmentAmount ??
+                s.obligation.minimumPaymentAmount ??
+                null,
+              interest: s.estimatedMonthlyInterest,
+            })),
+            fixedCosts: (model?.fixedCosts ?? [])
+              .filter((l) => l.active)
+              .map((l) => ({
+                label: l.label,
+                category: l.category,
+                amount: l.amount,
+                dueDay: l.dueDay,
+              })),
+            variableCosts: (model?.variableCosts ?? [])
+              .filter((l) => l.active)
+              .map((l) => ({
+                label: l.label,
+                category: l.category,
+                amount: l.amount,
+              })),
+            capacity: {
+              canSpendToday: capacityLive.canSpendToday,
+              canInvest: capacityLive.canInvest,
+              canPayDebtExtra: capacityLive.canPayDebtExtra,
+              canRestock: capacityLive.canRestock,
+              canWithdrawProfit: capacityLive.canWithdrawProfit,
+              canSpendAds: capacityLive.canSpendAds,
+              recompraEarmark: capacityLive.recompraEarmark,
+              nextQuincena: capacityLive.nextQuincena,
+              creditCardInstallment: capacityLive.creditCardInstallment,
+              gaps: capacityLive.gaps,
+            },
+            kpis: boardKpis.map((k) => ({
+              label: k.label,
+              value: k.value,
+              status: k.status,
+              detail: k.detail,
+            })),
+            goalsNorthStar: goalsWs.northStar || null,
+            recommendationAction: recommendation?.action ?? null,
+          }}
+        />
+      ) : null}
+
+      {tab === 'alerts' ? (
+        <AlertsPanel alerts={operationalAlerts} onGoToTab={(t) => goToTab(t)} />
+      ) : null}
+
+      {tab === 'calendar' ? (
+        <CalendarPanel
+          source={{
+            fixedCosts: (model?.fixedCosts ?? []).map((l) => ({
+              id: l.id,
+              label: l.label,
+              amount: l.amount,
+              category: l.category,
+              active: l.active,
+              dueDay: l.dueDay,
+            })),
+            obligations: debtWs.obligations.map((o) => ({
+              id: o.id,
+              label: o.label,
+              active: o.active,
+              paymentDueDay: o.paymentDueDay,
+              targetPaymentAmount: o.targetPaymentAmount,
+              fixedInstallmentAmount: o.fixedInstallmentAmount,
+              minimumPaymentAmount: o.minimumPaymentAmount,
+            })),
+          }}
+          closingDaysOfMonth={centralConfig.closingDaysOfMonth}
+          payrollMonthly={capacityLive.payrollMonthly}
+          inventoryRestockCycleDays={centralConfig.inventoryRestockCycleDays}
+          onGoToClosings={() => {
+            goToTab('closings');
+            setClosingGateActive(Boolean(closingStatus?.pendingDays.length));
+          }}
+          onGoToConfig={() => goToTab('config')}
+        />
+      ) : null}
+
       {tab === 'scenarios' ? (
         <ScenariosPanel
           workspace={scenarioWs}
@@ -1675,7 +2149,7 @@ export function OsShell() {
             </label>
             <p className="mt-1 text-xs text-muted">
               Se edita en{' '}
-              <button type="button" className="underline" onClick={() => setTab('config')}>
+              <button type="button" className="underline" onClick={() => goToTab('config')}>
                 Configuración
               </button>
               {minCashFloor ? ` · piso caja ${formatCop(minCashFloor)}` : ''}
@@ -1758,7 +2232,7 @@ export function OsShell() {
             )}
             <button
               type="button"
-              onClick={() => setTab('ai')}
+              onClick={() => goToTab('ai')}
               className="mt-5 rounded-full border border-forest px-4 py-2 text-sm font-semibold text-forest"
             >
               Ir a CFO AI (OpenAI)

@@ -20,6 +20,12 @@ REGLAS ABSOLUTAS SOBRE DATOS
 - El monto del catálogo de costos fijos es PLAN mensual; el pago REAL está en commitments (pagado/parcial) o fixedCostsThisMonth.
 - Distingue presupuesto (programado) de ejecución (pagado / parcial / pendiente / omitido).
 - Si dailyClosing.pendingDays no está vacío, declara que faltan registros y no emitas recomendaciones operativas definitivas.
+- Usa alerts[] del contexto (avisos operativos ya derivados); no inventes alertas nuevas ni ignores las críticas.
+- Usa calendar.upcoming para vencimientos del mes; no inventes fechas de pago.
+- Respeta goals.northStar y goals.active; no inventes metas ni cambies prioridades del dueño.
+- Usa kpis[] con status/value ya calculados; si status es "unknown" no inventes el indicador.
+- Usa assumptions.fields solo cuando value está definido; no inventes inflación, crecimiento ni TRM.
+- costs.amountVersions es el historial de presupuesto (vigencia por fecha); no mezcles plan versionado con pagos de dailyClosing.
 - Si falta información relevante, decláralo explícitamente en "missingInformation" y baja el "confidenceLevel".
 - OpenAI NO realiza cálculos financieros: no recalcules punto de equilibrio, intereses, runway ni scores; solo interpreta los números dados.
 

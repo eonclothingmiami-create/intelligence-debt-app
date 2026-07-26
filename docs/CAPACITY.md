@@ -11,7 +11,9 @@ La pestaña **Capacidad** responde las seis preguntas del dueño con hechos del 
 5. ¿Cuánto puedo retirar como utilidad?
 6. ¿Cuánto puedo destinar a publicidad?
 
-Los montos salen de `@fie/financial-orchestrator` (`deriveCapacity` / `runBoard`). El orquestador **no inventa fórmulas**: valida inputs, ejecuta motores en orden y expone un `BoardSnapshot`.
+Los montos salen de `@fie/financial-orchestrator` (`deriveCapacity` / `runBoard`). El orquestador **no inventa fórmulas**: valida inputs, ejecuta motores en orden y expone un `BoardSnapshot`. Detalle de coordinación: [ORCHESTRATOR.md](./ORCHESTRATOR.md).
+
+**Gastar hoy** ≠ **invertir**: liquidez inmediata post-earmarks vs excedente que ya respeta la reserva. Capacidad es la pestaña home por defecto.
 
 ## Flujo
 
@@ -37,7 +39,7 @@ Capacidad lee reglas del **Centro de Configuración** ([CONFIGURATION.md](./CONF
 | % recompra earmarked           | Capacidad / `cashStore`                            |
 | Moneda display                 | Configuración → Identidad                          |
 
-Alertas, calendario, KPIs, objetivos dedicados, supuestos, reportes, versiones, auditoría e historial de recomendaciones siguen en roadmap.
+Alertas operativas: [ALERTS.md](./ALERTS.md). Versiones de costos: [COST_VERSIONS.md](./COST_VERSIONS.md). Auditoría global e historial de recomendaciones siguen en roadmap.
 
 ## AI
 

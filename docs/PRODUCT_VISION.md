@@ -80,7 +80,7 @@ Ventas + Gastos + Deudas + Caja + Ads + BEP (reales)
    Dashboard / Decisión / CFO AI
 ```
 
-Detalle de Capacidad + orquestador: [CAPACITY.md](./CAPACITY.md).
+Detalle de Capacidad: [CAPACITY.md](./CAPACITY.md). Coordinación de motores: [ORCHESTRATOR.md](./ORCHESTRATOR.md).
 
 El dashboard **no** es el producto; es la superficie. El producto es la capacidad de responder:
 
@@ -204,7 +204,7 @@ Financial Engines
 Dashboard + explicación     @fie/web (+ API)
 ```
 
-Roadmap explícito (post Capacidad + Configuración): Alertas, Calendario, Objetivos, KPIs, Supuestos, Reportes, Versiones de costos, Auditoría global, Historial de recomendaciones. Ver [CAPACITY.md](./CAPACITY.md) y [CONFIGURATION.md](./CONFIGURATION.md).
+Roadmap explícito (post Capacidad + Config + Alertas + Calendario + Objetivos + KPIs + Supuestos + Reportes + Versiones de costos): Auditoría global, Historial de recomendaciones. Ver [COST_VERSIONS.md](./COST_VERSIONS.md) y [REPORTS.md](./REPORTS.md).
 
 ---
 

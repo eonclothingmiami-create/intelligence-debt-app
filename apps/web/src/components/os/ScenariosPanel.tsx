@@ -39,7 +39,8 @@ export function ScenariosPanel({
         <h2 className="brand-mark text-2xl text-forest">Escenarios (los recomienda el OS)</h2>
         <p className="mt-1 text-sm text-muted">
           El sistema evalúa opciones con tu capacidad inmediata, política de liquidez y margen BEP.
-          Tú confirmas o cambias; no inventas el escenario desde cero.
+          Tú confirmas o cambias; no inventas el escenario desde cero. Inflación / crecimiento / TRM
+          viven en la pestaña Supuestos (no se inventan aquí).
         </p>
         <p className="mt-3 text-sm">
           Capacidad inmediata:{' '}

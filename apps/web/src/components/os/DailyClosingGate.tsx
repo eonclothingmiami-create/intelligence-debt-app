@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { BreakEvenModel } from '@fie/break-even-engine';
 import type { ConfigCatalogItem } from '@fie/shared';
 import { applyClosingEffects } from '@/lib/applyClosingEffects';
@@ -140,6 +140,12 @@ export function DailyClosingGate({
   ]);
   const [notes, setNotes] = useState('');
 
+  // Parent often passes inline lambdas — keep refs so mount fetch does not loop / flicker.
+  const onStatusChangeRef = useRef(onStatusChange);
+  const onClosedRef = useRef(onClosed);
+  onStatusChangeRef.current = onStatusChange;
+  onClosedRef.current = onClosed;
+
   const day = status?.nextPendingDay ?? null;
   const pendingCount = status?.pendingDays.length ?? 0;
 
@@ -175,10 +181,10 @@ export function DailyClosingGate({
         const s = await fetchClosingStatus();
         if (cancelled) return;
         setStatus(s);
-        onStatusChange(s);
+        onStatusChangeRef.current(s);
         if (s.pendingDays.length === 0) {
           setPhase('done');
-          onClosed();
+          onClosedRef.current();
         }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Error cargando registro');
@@ -189,7 +195,7 @@ export function DailyClosingGate({
     return () => {
       cancelled = true;
     };
-  }, [onStatusChange, onClosed]);
+  }, []);
 
   useEffect(() => {
     if (!day || phase !== 'form') return;

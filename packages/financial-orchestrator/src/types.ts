@@ -44,9 +44,19 @@ export type BoardInput = {
   futureInterestSaved?: string;
   marketingFreedCapacity?: string;
   marketingOverspend?: string;
+  /**
+   * Optional explicit risk inputs. If omitted, runBoard derives them from
+   * break-even + liquidity + debts + inventoryHint (no silent invention of missing cores).
+   */
   riskComponents?: Record<string, number>;
   riskWeights?: Record<string, string>;
   riskBands?: { lowMin: number; mediumMin: number };
+  /** Optional inventory facts for health score only. */
+  inventoryHint?: {
+    units: string;
+    skusBelowMin: number;
+    skusWithStock: number;
+  };
   asOf?: Date;
 };
 
@@ -85,6 +95,8 @@ export type BoardValidation = {
 
 export type BoardSnapshot = {
   validation: BoardValidation;
+  /** Declared engine order for this run. */
+  pipeline: string[];
   capacity: CapacitySnapshot;
   breakEven: BreakEvenSnapshot | null;
   liquidity: {

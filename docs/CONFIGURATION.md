@@ -31,4 +31,6 @@ Sin defaults silenciosos de valores financieros: si un campo está vacío, el si
 
 ## Roadmap (no en esta fase)
 
-Alertas · Calendario · Objetivos dedicados · KPIs · Supuestos · Reportes · Versiones de costos · Auditoría global · Historial de recomendaciones.
+Calendario · Objetivos dedicados · KPIs · Supuestos · Reportes · [Versiones de costos](./COST_VERSIONS.md) · Auditoría global · Historial de recomendaciones.
+
+(Alertas: [ALERTS.md](./ALERTS.md) · Calendario: [CALENDAR.md](./CALENDAR.md) · Objetivos: [GOALS.md](./GOALS.md).)

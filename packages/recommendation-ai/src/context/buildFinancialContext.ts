@@ -8,6 +8,10 @@ export type FinancialContextBoardInput = {
   liquidity?: Partial<FinancialContext['liquidity']> | null;
   capacity?: Partial<FinancialContext['capacity']> | null;
   workspaceConfig?: Partial<FinancialContext['workspaceConfig']> | null;
+  calendar?: Partial<FinancialContext['calendar']> | null;
+  goals?: Partial<FinancialContext['goals']> | null;
+  kpis?: FinancialContext['kpis'] | null;
+  assumptions?: Partial<FinancialContext['assumptions']> | null;
   health?: Partial<FinancialContext['health']> | null;
   engineRecommendation?: Partial<FinancialContext['engineRecommendation']> | null;
   debts?: Partial<FinancialContext['debts']> | null;
@@ -100,6 +104,34 @@ export function buildFinancialContext(input: FinancialContextBoardInput): Financ
     missing.push('workspaceConfig.targetProfitAmount');
   }
 
+  const calendar = {
+    yearMonth: input.calendar?.yearMonth ?? null,
+    eventCount: input.calendar?.eventCount ?? null,
+    upcoming: input.calendar?.upcoming ?? [],
+  };
+  if (!calendar.upcoming.length) missing.push('calendar.upcoming');
+
+  const goals = {
+    northStar: input.goals?.northStar ?? null,
+    active: input.goals?.active ?? [],
+  };
+  if (!goals.northStar && !goals.active.length) missing.push('goals');
+
+  const kpis = input.kpis ?? [];
+  if (!kpis.length) missing.push('kpis');
+  for (const k of kpis) {
+    if (k.status === 'unknown' || k.value == null) missing.push(`kpis.${k.id}`);
+  }
+
+  const assumptions = {
+    setLabel: input.assumptions?.setLabel ?? null,
+    fields: input.assumptions?.fields ?? [],
+  };
+  const definedAssumptions = assumptions.fields.filter(
+    (f) => f.active && f.value != null && f.value !== '',
+  );
+  if (!definedAssumptions.length) missing.push('assumptions');
+
   const health = {
     score: input.health?.score ?? null,
     riskLevel: input.health?.riskLevel ?? null,
@@ -139,8 +171,10 @@ export function buildFinancialContext(input: FinancialContextBoardInput): Financ
 
   const costs = {
     fixedCostLines: input.costs?.fixedCostLines ?? [],
+    amountVersions: input.costs?.amountVersions ?? [],
   };
   if (!costs.fixedCostLines.length) missing.push('costs.fixedCostLines');
+  if (!costs.amountVersions.length) missing.push('costs.amountVersions');
 
   const dailyClosing = {
     seriesStart: input.dailyClosing?.seriesStart ?? null,
@@ -183,6 +217,10 @@ export function buildFinancialContext(input: FinancialContextBoardInput): Financ
     liquidity,
     capacity,
     workspaceConfig,
+    calendar,
+    goals,
+    kpis,
+    assumptions,
     health,
     engineRecommendation,
     debts,

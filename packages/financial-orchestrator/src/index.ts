@@ -10,6 +10,9 @@ export type {
   BoardSnapshot,
 } from './types.js';
 
+export type { BoardPipelineStep } from './riskDefaults.js';
+export { BOARD_PIPELINE, deriveRiskInputsFromBoard } from './riskDefaults.js';
+
 export { validateBoardInputs } from './validate.js';
 export {
   deriveCapacity,
