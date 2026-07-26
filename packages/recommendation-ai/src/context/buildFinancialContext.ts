@@ -7,6 +7,7 @@ export type FinancialContextBoardInput = {
   breakEven?: Partial<FinancialContext['breakEven']> | null;
   liquidity?: Partial<FinancialContext['liquidity']> | null;
   capacity?: Partial<FinancialContext['capacity']> | null;
+  workspaceConfig?: Partial<FinancialContext['workspaceConfig']> | null;
   health?: Partial<FinancialContext['health']> | null;
   engineRecommendation?: Partial<FinancialContext['engineRecommendation']> | null;
   debts?: Partial<FinancialContext['debts']> | null;
@@ -79,6 +80,24 @@ export function buildFinancialContext(input: FinancialContextBoardInput): Financ
   if (capacity.canPayDebtExtra == null) missing.push('capacity.canPayDebtExtra');
   for (const g of capacity.gaps) {
     missing.push(`capacity.gap.${g}`);
+  }
+
+  const workspaceConfig = {
+    currency: input.workspaceConfig?.currency ?? null,
+    fiscalYearStartMonth: input.workspaceConfig?.fiscalYearStartMonth ?? null,
+    closingDaysOfMonth: input.workspaceConfig?.closingDaysOfMonth ?? null,
+    operatingDaysPerMonth: input.workspaceConfig?.operatingDaysPerMonth ?? null,
+    targetProfitAmount: input.workspaceConfig?.targetProfitAmount ?? null,
+    debtReductionTargetAmount: input.workspaceConfig?.debtReductionTargetAmount ?? null,
+    inventoryRestockCycleDays: input.workspaceConfig?.inventoryRestockCycleDays ?? null,
+    activeSalesChannelLabels: input.workspaceConfig?.activeSalesChannelLabels ?? [],
+    expenseCategoryLabels: input.workspaceConfig?.expenseCategoryLabels ?? [],
+  };
+  if (workspaceConfig.currency == null || workspaceConfig.currency === '') {
+    missing.push('workspaceConfig.currency');
+  }
+  if (workspaceConfig.targetProfitAmount == null || workspaceConfig.targetProfitAmount === '') {
+    missing.push('workspaceConfig.targetProfitAmount');
   }
 
   const health = {
@@ -163,6 +182,7 @@ export function buildFinancialContext(input: FinancialContextBoardInput): Financ
     breakEven,
     liquidity,
     capacity,
+    workspaceConfig,
     health,
     engineRecommendation,
     debts,

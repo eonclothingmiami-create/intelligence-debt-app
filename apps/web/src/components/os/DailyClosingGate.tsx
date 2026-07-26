@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { BreakEvenModel } from '@fie/break-even-engine';
+import type { ConfigCatalogItem } from '@fie/shared';
 import { applyClosingEffects } from '@/lib/applyClosingEffects';
 import {
   applyCommitmentDecision,
@@ -47,6 +48,12 @@ type NewDebtDraft = {
 
 type Phase = 'ask' | 'form' | 'done';
 
+type MovementKindOption = {
+  id: string;
+  label: string;
+  direction: 'inflow' | 'outflow';
+};
+
 type Props = {
   model: BreakEvenModel | null;
   debtWs: DebtWorkspace;
@@ -54,16 +61,19 @@ type Props = {
   onCashChange: (cash: string) => void;
   onStatusChange: (status: ClosingStatus) => void;
   onClosed: () => void;
+  /** From Centro de Configuración — extraordinary movement kinds. */
+  movementCategories?: ConfigCatalogItem[];
+  /** From Centro de Configuración — expense category suggestions. */
+  expenseCategories?: ConfigCatalogItem[];
 };
 
-const EXTRA_KINDS = [
-  { id: 'aporte_capital', label: 'Aporte de capital', direction: 'inflow' as const },
-  { id: 'retiro_utilidades', label: 'Retiro de utilidades', direction: 'outflow' as const },
-  { id: 'compra_activo', label: 'Compra de activo', direction: 'outflow' as const },
-  { id: 'venta_activo', label: 'Venta de activo', direction: 'inflow' as const },
-  { id: 'prestamo_nuevo', label: 'Préstamo nuevo (caja)', direction: 'inflow' as const },
-  { id: 'nueva_deuda', label: 'Nueva deuda (solo registrar)', direction: 'outflow' as const },
-  { id: 'otro', label: 'Otro', direction: 'outflow' as const },
+const DEFAULT_EXTRA_KINDS: MovementKindOption[] = [
+  { id: 'aporte_capital', label: 'Aporte de capital', direction: 'inflow' },
+  { id: 'retiro_utilidades', label: 'Retiro de utilidades', direction: 'outflow' },
+  { id: 'compra_activo', label: 'Compra de activo', direction: 'outflow' },
+  { id: 'venta_activo', label: 'Venta de activo', direction: 'inflow' },
+  { id: 'prestamo_nuevo', label: 'Préstamo nuevo (caja)', direction: 'inflow' },
+  { id: 'otro', label: 'Otro', direction: 'outflow' },
 ];
 
 const fieldClass =
@@ -82,6 +92,17 @@ function yearMonth(day: string): string {
   return day.slice(0, 7);
 }
 
+function resolveMovementKinds(cats?: ConfigCatalogItem[]): MovementKindOption[] {
+  const fromConfig = (cats ?? [])
+    .filter((c) => c.active && c.label.trim())
+    .map((c) => ({
+      id: c.id,
+      label: c.label,
+      direction: (c.direction ?? 'outflow') as 'inflow' | 'outflow',
+    }));
+  return fromConfig.length > 0 ? fromConfig : DEFAULT_EXTRA_KINDS;
+}
+
 /**
  * Registro Diario de Movimientos Financieros
  * Budget stays in Costos/Deudas; here you confirm dues and capture only real changes.
@@ -93,7 +114,14 @@ export function DailyClosingGate({
   onCashChange,
   onStatusChange,
   onClosed,
+  movementCategories,
+  expenseCategories,
 }: Props) {
+  const extraKinds = useMemo(() => resolveMovementKinds(movementCategories), [movementCategories]);
+  const expenseOptions = useMemo(
+    () => (expenseCategories ?? []).filter((c) => c.active && c.label.trim()),
+    [expenseCategories],
+  );
   const [status, setStatus] = useState<ClosingStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -241,7 +269,7 @@ export function DailyClosingGate({
     if (hasMovements) {
       for (const m of movements) {
         if (moneyNum(m.amount) <= 0) continue;
-        const kindMeta = EXTRA_KINDS.find((k) => k.id === m.kind);
+        const kindMeta = extraKinds.find((k) => k.id === m.kind);
         lines.push({
           lineType: 'extraordinary',
           concept: m.concept.trim() || kindMeta?.label || m.kind,
@@ -416,7 +444,14 @@ export function DailyClosingGate({
 
   useEffect(() => {
     if (hasMovements && movements.length === 0) {
-      setMovements([{ kind: 'aporte_capital', concept: '', amount: '', direction: 'inflow' }]);
+      setMovements([
+        {
+          kind: extraKinds[0]?.id ?? 'aporte_capital',
+          concept: '',
+          amount: '',
+          direction: extraKinds[0]?.direction ?? 'inflow',
+        },
+      ]);
     }
   }, [hasMovements, movements.length]);
 
@@ -593,6 +628,13 @@ export function DailyClosingGate({
                 <p className="text-xs text-muted">
                   Solo lo no presupuestado (taxi, almuerzo, reparación, etc.).
                 </p>
+                {expenseOptions.length > 0 ? (
+                  <datalist id="fie-expense-categories">
+                    {expenseOptions.map((c) => (
+                      <option key={c.id} value={c.label} />
+                    ))}
+                  </datalist>
+                ) : null}
                 <YesNo value={hasExtras} onChange={setHasExtras} />
                 {hasExtras
                   ? extraExpenses.map((e, i) => (
@@ -604,6 +646,7 @@ export function DailyClosingGate({
                           Categoría
                           <input
                             className={fieldClass}
+                            list="fie-expense-categories"
                             value={e.category}
                             onChange={(ev) => {
                               const next = [...extraExpenses];
@@ -668,7 +711,7 @@ export function DailyClosingGate({
                             className={fieldClass}
                             value={m.kind}
                             onChange={(ev) => {
-                              const kind = EXTRA_KINDS.find((k) => k.id === ev.target.value);
+                              const kind = extraKinds.find((k) => k.id === ev.target.value);
                               const next = [...movements];
                               next[i] = {
                                 ...m,
@@ -678,7 +721,7 @@ export function DailyClosingGate({
                               setMovements(next);
                             }}
                           >
-                            {EXTRA_KINDS.filter((k) => k.id !== 'nueva_deuda').map((k) => (
+                            {extraKinds.map((k) => (
                               <option key={k.id} value={k.id}>
                                 {k.label}
                               </option>

@@ -15,6 +15,8 @@ type Props = {
   buildContext: () => FinancialContext;
   fixedBurn: string;
   openaiConnected: boolean;
+  /** Display currency from Centro de Configuración. */
+  currencyDisplay?: string;
 };
 
 /**
@@ -26,6 +28,7 @@ export function PoliciesPanel({
   buildContext,
   fixedBurn,
   openaiConnected,
+  currencyDisplay = 'COP',
 }: Props) {
   const [draft, setDraft] = useState<LiquidityPolicy>(policy);
   const [savedOk, setSavedOk] = useState(false);
@@ -99,13 +102,12 @@ export function PoliciesPanel({
           Moneda de display
           <input
             className="metric mt-1 w-full rounded-lg border border-[var(--line)] bg-mist/40 px-3 py-2"
-            value="COP"
+            value={currencyDisplay}
             readOnly
           />
         </label>
         <p className="mt-1 text-xs text-muted">
-          Viene del modelo BEP / workspace. El Centro de Configuración completo (más campos) es Fase
-          2.
+          Se edita arriba en Identidad y calendario (Centro de Configuración).
         </p>
 
         <label className="mt-3 block text-sm">
@@ -124,7 +126,7 @@ export function PoliciesPanel({
         ) : null}
 
         <label className="mt-3 block text-sm">
-          Piso mínimo de caja (COP, opcional)
+          Piso mínimo de caja ({currencyDisplay}, opcional)
           <input
             className="metric mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2"
             value={draft.minCashFloor ?? ''}

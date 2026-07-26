@@ -1,15 +1,26 @@
 'use client';
 
 import { useEffect, useMemo, useState, useTransition } from 'react';
-import type { BreakEvenModel, BreakEvenSnapshot } from '@fie/break-even-engine';
+import type {
+  BreakEvenModel,
+  BreakEvenSnapshot,
+  ColombiaPayrollBreakdown,
+} from '@fie/break-even-engine';
+import { priceFromUtility, sumVariableCostsPerUnit } from '@fie/break-even-engine';
 import type { SalesDashboardSnapshot } from '@fie/erp-integration';
-import type { MarketingChannel, MarketingPortfolioVsActual } from '@fie/shared';
+import { Money } from '@fie/financial-engine';
+import type {
+  LiquidityPolicy,
+  MarketingChannel,
+  MarketingPortfolioVsActual,
+  WorkspaceCentralConfig,
+} from '@fie/shared';
 import { AiRecommendPanel } from '@/components/os/AiRecommendPanel';
 import { CapacityPanel } from '@/components/os/CapacityPanel';
 import { ClosingHistoryPanel } from '@/components/os/ClosingHistoryPanel';
+import { ConfigPanel } from '@/components/os/ConfigPanel';
 import { DailyClosingGate } from '@/components/os/DailyClosingGate';
 import { DebtsPanel } from '@/components/os/DebtsPanel';
-import { PoliciesPanel } from '@/components/os/PoliciesPanel';
 import { PayrollColombiaPanel } from '@/components/os/PayrollColombiaPanel';
 import { ScenariosPanel } from '@/components/os/ScenariosPanel';
 import {
@@ -28,6 +39,12 @@ import type { LiquidityView } from '@/lib/engines';
 import { assembleBoardFinancialContext, requestAiRecommendation } from '@/lib/aiRecommend';
 import type { AiFinancialRecommendation, FinancialContext } from '@/lib/aiRecommend';
 import { deriveOsCapacity } from '@/lib/board';
+import {
+  activeExtraordinaryCategories,
+  activeExpenseCategories,
+  activeSalesChannels,
+  loadCentralConfig,
+} from '@/lib/configStore';
 import { getStoredOpenAiKey } from '@/lib/openaiKey';
 import { fetchSalesDashboard, pingApi, syncHeraInventory, syncHeraSalesMonth } from '@/lib/erpApi';
 import type { HeraInventorySnapshot } from '@/lib/erpApi';
@@ -58,10 +75,6 @@ import {
 } from '@/lib/scenarioStore';
 import { loadClosingBoardFacts, type ClosingBoardFacts } from '@/lib/closingFacts';
 import type { ClosingStatus } from '@/lib/closingApi';
-import type { ColombiaPayrollBreakdown } from '@fie/break-even-engine';
-import { priceFromUtility, sumVariableCostsPerUnit } from '@fie/break-even-engine';
-import { Money } from '@fie/financial-engine';
-import type { LiquidityPolicy } from '@fie/shared';
 
 type Tab =
   | 'overview'
@@ -69,7 +82,7 @@ type Tab =
   | 'sales'
   | 'debts'
   | 'marketing'
-  | 'policies'
+  | 'config'
   | 'scenarios'
   | 'closings'
   | 'capacidad'
@@ -89,7 +102,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'debts', label: 'Deudas' },
   { id: 'costs', label: 'Costos' },
   { id: 'marketing', label: 'Publicidad' },
-  { id: 'policies', label: 'Políticas' },
+  { id: 'config', label: 'Configuración' },
   { id: 'scenarios', label: 'Escenarios' },
   { id: 'closings', label: 'Movimientos' },
   { id: 'capacidad', label: 'Capacidad' },
@@ -97,20 +110,25 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'ai', label: 'CFO AI' },
 ];
 
-const DEFAULT_CHANNELS: MarketingChannel[] = [
-  { id: 'tiktok', label: 'TikTok Ads', active: true, sortOrder: 0 },
-  { id: 'meta', label: 'Meta Ads', active: true, sortOrder: 1 },
-  { id: 'google', label: 'Google Ads', active: true, sortOrder: 2 },
-];
-
-const DEFAULT_ROWS: ChannelBudgetRow[] = [
-  { channelId: 'tiktok', label: 'TikTok Ads', budget: '2100000', actual: '1800000' },
-  { channelId: 'meta', label: 'Meta Ads', budget: '1500000', actual: '1200000' },
-  { channelId: 'google', label: 'Google Ads', budget: '900000', actual: '900000' },
-];
-
 const PERIOD_FROM = '2026-07-01';
 const PERIOD_TO = '2026-07-31';
+
+function channelsToBudgetRows(
+  config: WorkspaceCentralConfig,
+  prev: ChannelBudgetRow[],
+): ChannelBudgetRow[] {
+  const active = activeSalesChannels(config);
+  if (active.length === 0) return prev;
+  return active.map((ch) => {
+    const existing = prev.find((r) => r.channelId === ch.id);
+    return {
+      channelId: ch.id,
+      label: ch.label,
+      budget: existing?.budget ?? '0',
+      actual: existing?.actual ?? '0',
+    };
+  });
+}
 
 export function OsShell() {
   const [tab, setTab] = useState<Tab>('overview');
@@ -146,9 +164,18 @@ export function OsShell() {
   const [liquidityPolicy, setLiquidityPolicy] = useState<LiquidityPolicy>(() =>
     loadLiquidityPolicy(),
   );
+  const [centralConfig, setCentralConfig] = useState<WorkspaceCentralConfig>(() =>
+    loadCentralConfig(),
+  );
   const [alertRate, setAlertRate] = useState('0.10');
   const [interestSaved, setInterestSaved] = useState('120000');
-  const [channelRows, setChannelRows] = useState<ChannelBudgetRow[]>(DEFAULT_ROWS);
+  const [channelRows, setChannelRows] = useState<ChannelBudgetRow[]>(() =>
+    channelsToBudgetRows(loadCentralConfig(), [
+      { channelId: 'tiktok', label: 'TikTok Ads', budget: '2100000', actual: '1800000' },
+      { channelId: 'meta', label: 'Meta Ads', budget: '1500000', actual: '1200000' },
+      { channelId: 'google', label: 'Google Ads', budget: '900000', actual: '900000' },
+    ]),
+  );
   const [newFixed, setNewFixed] = useState({ label: '', category: '', amount: '', dueDay: '' });
   const [newVariable, setNewVariable] = useState({ label: '', category: '', amount: '' });
   const [margins, setMargins] = useState<MarginWorkspace>(() => loadMarginWorkspace());
@@ -167,6 +194,25 @@ export function OsShell() {
 
   const reserveMonths = liquidityPolicy.reserveMonths;
   const minCashFloor = liquidityPolicy.minCashFloor ?? '';
+  const workspaceCurrency = centralConfig.currency.trim() || model?.currency || 'COP';
+  const marketingChannels: MarketingChannel[] = useMemo(
+    () =>
+      activeSalesChannels(centralConfig).map((c, i) => ({
+        id: c.id,
+        label: c.label,
+        active: true,
+        sortOrder: i,
+      })),
+    [centralConfig],
+  );
+  const expenseCategoryOptions = useMemo(
+    () => activeExpenseCategories(centralConfig),
+    [centralConfig],
+  );
+  const extraordinaryOptions = useMemo(
+    () => activeExtraordinaryCategories(centralConfig),
+    [centralConfig],
+  );
   const earmarkedRecompra = useMemo(() => recompraAmount(cashSnapshot), [cashSnapshot]);
   const cashLeftAfterRecompra = useMemo(() => cashAfterRecompra(cashSnapshot), [cashSnapshot]);
   const cashPlan = useMemo(
@@ -184,7 +230,7 @@ export function OsShell() {
       deriveOsCapacity({
         cash: { ...cashSnapshot, cashOnHand: cash || cashSnapshot.cashOnHand },
         policy: liquidityPolicy,
-        currency: model?.currency ?? 'COP',
+        currency: workspaceCurrency,
         model,
         debts: debtWs,
         monthlyFixedBurn: breakEven?.totalFixedCosts ?? '0',
@@ -196,6 +242,7 @@ export function OsShell() {
       cashSnapshot,
       cash,
       liquidityPolicy,
+      workspaceCurrency,
       model,
       debtWs,
       breakEven?.totalFixedCosts,
@@ -551,7 +598,7 @@ export function OsShell() {
     }
     const closing = overrideClosing ?? closingFacts;
     return assembleBoardFinancialContext({
-      currency: model?.currency ?? 'COP',
+      currency: workspaceCurrency,
       sales: salesDash
         ? {
             dayNet: salesDash.day.netSales,
@@ -594,6 +641,17 @@ export function OsShell() {
         nextQuincena: capacityLive.nextQuincena,
         creditCardInstallment: capacityLive.creditCardInstallment,
         gaps: capacityLive.gaps,
+      },
+      workspaceConfig: {
+        currency: workspaceCurrency,
+        fiscalYearStartMonth: centralConfig.fiscalYearStartMonth || null,
+        closingDaysOfMonth: centralConfig.closingDaysOfMonth || null,
+        operatingDaysPerMonth: centralConfig.operatingDaysPerMonth || null,
+        targetProfitAmount: centralConfig.targetProfitAmount || null,
+        debtReductionTargetAmount: centralConfig.debtReductionTargetAmount || null,
+        inventoryRestockCycleDays: centralConfig.inventoryRestockCycleDays || null,
+        activeSalesChannelLabels: marketingChannels.map((c) => c.label),
+        expenseCategoryLabels: expenseCategoryOptions.map((c) => c.label),
       },
       health: score ? { score: score.score, riskLevel: score.riskLevel } : null,
       engineRecommendation: recommendation
@@ -690,6 +748,16 @@ export function OsShell() {
           : 'Sin piso absoluto de caja.',
         liquidityPolicy.notes ? `Notas política: ${liquidityPolicy.notes}` : '',
         'Objetivo declarado: salir de deudas sin perder liquidez operativa; robustecer el negocio.',
+        centralConfig.targetProfitAmount
+          ? `Meta utilidad (config): ${centralConfig.targetProfitAmount}.`
+          : 'Meta utilidad no definida en Configuración.',
+        centralConfig.debtReductionTargetAmount
+          ? `Meta reducción deuda (config): ${centralConfig.debtReductionTargetAmount}.`
+          : 'Meta reducción deuda no definida en Configuración.',
+        centralConfig.inventoryRestockCycleDays
+          ? `Ciclo recompra inventario (días): ${centralConfig.inventoryRestockCycleDays}.`
+          : '',
+        `Año fiscal inicia mes ${centralConfig.fiscalYearStartMonth || '—'}. Días cierre: ${centralConfig.closingDaysOfMonth || 'solo registro diario'}.`,
         `Caja hoy: ${cash || '—'}; ~${Math.round(Number(cashSnapshot.recompraShareOfCash || 0) * 100)}% earmarked a recompra (≈ ${earmarkedRecompra}).`,
         `Tras recompra queda ≈ ${cashLeftAfterRecompra}.`,
         cashPlan.payrollMonthly
@@ -724,8 +792,8 @@ export function OsShell() {
   function runDecisionStack() {
     if (!breakEven) return;
     if (!isLiquidityPolicyComplete(liquidityPolicy)) {
-      setError('Define primero la política de liquidez (pestaña Políticas).');
-      setTab('policies');
+      setError('Define primero la política de liquidez (pestaña Configuración).');
+      setTab('config');
       return;
     }
     if (!cash.trim()) {
@@ -744,17 +812,24 @@ export function OsShell() {
     startTransition(async () => {
       try {
         const mkt = await actionMarketingPortfolio({
-          currency: 'COP',
+          currency: workspaceCurrency,
           periodFrom: PERIOD_FROM,
           periodTo: PERIOD_TO,
-          channels: DEFAULT_CHANNELS,
+          channels: marketingChannels.length
+            ? marketingChannels
+            : channelRows.map((row, i) => ({
+                id: row.channelId,
+                label: row.label,
+                active: true,
+                sortOrder: i,
+              })),
           budgets: channelRows.map((row) => ({
             id: `b-${row.channelId}`,
             channelId: row.channelId,
             periodFrom: PERIOD_FROM,
             periodTo: PERIOD_TO,
             budgetAmount: row.budget || '0',
-            currency: 'COP',
+            currency: workspaceCurrency,
             notes: row.label,
           })),
           actuals: channelRows.map((row) => ({
@@ -762,7 +837,7 @@ export function OsShell() {
             channelId: row.channelId,
             occurredOn: '2026-07-15',
             actualAmount: row.actual || '0',
-            currency: 'COP',
+            currency: workspaceCurrency,
             notes: row.label,
           })),
           policy: { alertDeviationRate: alertRate },
@@ -779,7 +854,7 @@ export function OsShell() {
         const board = await actionRunBoard({
           cash: { ...cashSnapshot, cashOnHand: cash },
           policy: liquidityPolicy,
-          currency: model?.currency ?? 'COP',
+          currency: workspaceCurrency,
           model,
           debts: debtWs,
           monthlyFixedBurn: fixedBurn,
@@ -900,6 +975,8 @@ export function OsShell() {
             setClosingGateActive(false);
             void refreshClosingFacts();
           }}
+          movementCategories={extraordinaryOptions}
+          expenseCategories={expenseCategoryOptions}
         />
       ) : null}
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -1074,11 +1151,19 @@ export function OsShell() {
 
       {tab === 'costs' && model ? (
         <section className="space-y-4">
+          {expenseCategoryOptions.length > 0 ? (
+            <datalist id="fie-config-expense-categories">
+              {expenseCategoryOptions.map((c) => (
+                <option key={c.id} value={c.label} />
+              ))}
+            </datalist>
+          ) : null}
           <div className="panel rounded-2xl p-4 md:p-6">
             <h2 className="brand-mark text-2xl text-forest">Costos fijos (presupuesto)</h2>
             <p className="mt-1 text-sm text-muted">
               Presupuesto mensual para BEP y proyecciones. Define el día de pago; el registro diario
-              solo confirma si se pagó. No vuelvas a digitar el monto cada mes.
+              solo confirma si se pagó. No vuelvas a digitar el monto cada mes. Categorías desde
+              Configuración.
             </p>
             <ul className="mt-6 divide-y divide-[var(--line)]">
               {model.fixedCosts.map((line) => (
@@ -1098,6 +1183,7 @@ export function OsShell() {
                     Categoría
                     <input
                       className="mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm text-ink"
+                      list="fie-config-expense-categories"
                       value={line.category}
                       onChange={(e) => updateFixedCost(line.id, { category: e.target.value })}
                     />
@@ -1164,6 +1250,7 @@ export function OsShell() {
                 Categoría
                 <input
                   className="mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
+                  list="fie-config-expense-categories"
                   placeholder="Ej. Local"
                   value={newFixed.category}
                   onChange={(e) => setNewFixed((s) => ({ ...s, category: e.target.value }))}
@@ -1223,6 +1310,7 @@ export function OsShell() {
                     Categoría
                     <input
                       className="mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm text-ink"
+                      list="fie-config-expense-categories"
                       value={line.category}
                       onChange={(e) => updateVariableCost(line.id, { category: e.target.value })}
                     />
@@ -1260,6 +1348,7 @@ export function OsShell() {
                 Categoría
                 <input
                   className="mt-1 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
+                  list="fie-config-expense-categories"
                   placeholder="Ej. Empaque"
                   value={newVariable.category}
                   onChange={(e) => setNewVariable((s) => ({ ...s, category: e.target.value }))}
@@ -1480,8 +1569,13 @@ export function OsShell() {
         </section>
       ) : null}
 
-      {tab === 'policies' ? (
-        <PoliciesPanel
+      {tab === 'config' ? (
+        <ConfigPanel
+          config={centralConfig}
+          onConfigChange={(next) => {
+            setCentralConfig(next);
+            setChannelRows((prev) => channelsToBudgetRows(next, prev));
+          }}
           policy={liquidityPolicy}
           onPolicyChange={setLiquidityPolicy}
           buildContext={buildBoardContext}
@@ -1504,7 +1598,7 @@ export function OsShell() {
       {tab === 'capacidad' ? (
         <CapacityPanel
           capacity={capacityLive}
-          currency={model?.currency ?? 'COP'}
+          currency={workspaceCurrency}
           cash={cash}
           recompraShare={cashSnapshot.recompraShareOfCash}
           reserveMonths={reserveMonths}
@@ -1581,8 +1675,8 @@ export function OsShell() {
             </label>
             <p className="mt-1 text-xs text-muted">
               Se edita en{' '}
-              <button type="button" className="underline" onClick={() => setTab('policies')}>
-                Políticas
+              <button type="button" className="underline" onClick={() => setTab('config')}>
+                Configuración
               </button>
               {minCashFloor ? ` · piso caja ${formatCop(minCashFloor)}` : ''}
               {liquidityPolicy.reserveIsHardFloor ? ' · reserva intocable' : ' · reserva blanda'}

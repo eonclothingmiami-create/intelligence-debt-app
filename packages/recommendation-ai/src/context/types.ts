@@ -47,6 +47,18 @@ export type FinancialContext = {
     creditCardInstallment: string | null;
     gaps: string[];
   };
+  /** Centro de Configuración — goals and calendar rules (inputs, not invented). */
+  workspaceConfig: {
+    currency: string | null;
+    fiscalYearStartMonth: string | null;
+    closingDaysOfMonth: string | null;
+    operatingDaysPerMonth: string | null;
+    targetProfitAmount: string | null;
+    debtReductionTargetAmount: string | null;
+    inventoryRestockCycleDays: string | null;
+    activeSalesChannelLabels: string[];
+    expenseCategoryLabels: string[];
+  };
   health: {
     score: number | null;
     riskLevel: string | null;

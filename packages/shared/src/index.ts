@@ -32,6 +32,8 @@ export type {
   DashboardWidget,
   LiquidityPolicy,
   RiskWeightPolicy,
+  ConfigCatalogItem,
+  WorkspaceCentralConfig,
   BusinessWorkspaceConfig,
   MetricKind,
 } from './workspace.js';

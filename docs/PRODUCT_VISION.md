@@ -204,7 +204,7 @@ Financial Engines
 Dashboard + explicación     @fie/web (+ API)
 ```
 
-Roadmap explícito (post Fase 1 Capacidad): Centro de Configuración completo, Alertas, Calendario, Objetivos, KPIs, Supuestos, Reportes, Versiones de costos, Auditoría global, Historial de recomendaciones. Ver [CAPACITY.md](./CAPACITY.md).
+Roadmap explícito (post Capacidad + Configuración): Alertas, Calendario, Objetivos, KPIs, Supuestos, Reportes, Versiones de costos, Auditoría global, Historial de recomendaciones. Ver [CAPACITY.md](./CAPACITY.md) y [CONFIGURATION.md](./CONFIGURATION.md).
 
 ---
 

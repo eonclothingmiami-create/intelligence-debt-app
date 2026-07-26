@@ -124,6 +124,46 @@ export type LiquidityPolicy = {
  */
 export type RiskWeightPolicy = Record<string, string>;
 
+/** User-defined catalog label (expense / movement categories). */
+export type ConfigCatalogItem = {
+  id: string;
+  label: string;
+  active: boolean;
+  sortOrder: number;
+  /** For extraordinary movements: cash direction hint. */
+  direction?: 'inflow' | 'outflow';
+};
+
+/**
+ * Centro de Configuración — rules the whole OS reads.
+ * No silent product defaults for financial values; empty string = user has not set.
+ */
+export type WorkspaceCentralConfig = {
+  currency: string;
+  /** Fiscal year start month 1–12 (string). */
+  fiscalYearStartMonth: string;
+  /**
+   * Days of month when formal close is expected (e.g. "15,30").
+   * Empty = daily register only (no monthly close day declared).
+   */
+  closingDaysOfMonth: string;
+  /** Operating / sales days per month for period scaling (e.g. "26"). */
+  operatingDaysPerMonth: string;
+  /** Target profit amount in workspace currency. */
+  targetProfitAmount: string;
+  /** Debt reduction goal amount for the planning horizon. */
+  debtReductionTargetAmount: string;
+  /** Average inventory restock cycle in days. */
+  inventoryRestockCycleDays: string;
+  /** Active sales / ads channels (feeds marketing module). */
+  salesChannels: ConfigCatalogItem[];
+  /** Expense category catalog (feeds costs + closing extras). */
+  expenseCategories: ConfigCatalogItem[];
+  /** Extraordinary movement kinds (feeds daily register). */
+  extraordinaryMovementCategories: ConfigCatalogItem[];
+  updatedAt?: string;
+};
+
 export type BusinessWorkspaceConfig = {
   workspaceId: string;
   currency: string;

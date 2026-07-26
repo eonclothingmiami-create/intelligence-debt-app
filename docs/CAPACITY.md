@@ -27,18 +27,18 @@ break-even → liquidity → debt optimizer → recommend + score
 BoardSnapshot → Capacidad UI · Decisión · FinancialContext.capacity (AI)
 ```
 
-## Config mínima (esta fase)
+## Config
 
-Solo lo que Capacidad necesita:
+Capacidad lee reglas del **Centro de Configuración** ([CONFIGURATION.md](./CONFIGURATION.md)):
 
-| Campo                          | Dónde                                               |
-| ------------------------------ | --------------------------------------------------- |
-| Reserva (meses) + piso de caja | Políticas (`policyStore`)                           |
-| % recompra earmarked           | Capacidad / `cashStore`                             |
-| Moneda display                 | Modelo BEP (COP) — lectura en Políticas / Capacidad |
+| Campo                          | Dónde                                              |
+| ------------------------------ | -------------------------------------------------- |
+| Reserva (meses) + piso de caja | Configuración → Reserva y liquidez (`policyStore`) |
+| % recompra earmarked           | Capacidad / `cashStore`                            |
+| Moneda display                 | Configuración → Identidad                          |
 
-El **Centro de Configuración** completo (alertas, calendario, KPIs, objetivos, supuestos, reportes, versiones, auditoría, historial de recomendaciones) es **Fase 2+** — ver roadmap en [PRODUCT_VISION.md](./PRODUCT_VISION.md).
+Alertas, calendario, KPIs, objetivos dedicados, supuestos, reportes, versiones, auditoría e historial de recomendaciones siguen en roadmap.
 
 ## AI
 
-`FinancialContext.capacity` lleva las seis respuestas precomputadas. El prompt del CFO AI prohíbe recalcularlas.
+`FinancialContext.capacity` lleva las seis respuestas precomputadas. El prompt del CFO AI prohíbe recalcularlas. `workspaceConfig` aporta metas y moneda.
